@@ -5,6 +5,14 @@ from dataclasses import dataclass
 import pytest
 
 from swifta.domain.errors import InputValidationError
+from swifta.domain.control_flow import (
+    ActionFlowStep,
+    ForInFlowStep,
+    IfFlowStep,
+    RepeatWhileFlowStep,
+    SwitchFlowStep,
+    WhileFlowStep,
+)
 from swifta.domain.model import SourceUnit, SourceUnitId, StructuralElementKind
 from swifta.infrastructure.antlr.control_flow_extractor import (
     AntlrVerilogControlFlowExtractor,
@@ -87,18 +95,69 @@ def test_extract_steps_maps_common_control_constructs() -> None:
     body = "\n".join(
         [
             "if (a > 0)",
+            "result <= value;",
             "while (ready)",
+            "result <= next;",
             "for (i = 0; i < 4; i = i + 1)",
+            "result <= i;",
+            "repeat (3)",
+            "result <= result + 1;",
             "case (state)",
+            "0: ",
+            "result <= 0;",
+            "default:",
+            "result <= 1;",
+            "endcase",
             "result <= value;",
         ]
     )
     steps = _extract_steps(body)
-    assert steps[0].__class__.__name__ == "IfFlowStep"
-    assert steps[1].__class__.__name__ == "WhileFlowStep"
-    assert steps[2].__class__.__name__ == "ForInFlowStep"
-    assert steps[3].__class__.__name__ == "SwitchFlowStep"
-    assert steps[4].__class__.__name__ == "ActionFlowStep"
+    assert isinstance(steps[0], IfFlowStep)
+    assert isinstance(steps[1], WhileFlowStep)
+    assert isinstance(steps[2], ForInFlowStep)
+    assert isinstance(steps[3], RepeatWhileFlowStep)
+    assert isinstance(steps[4], SwitchFlowStep)
+    assert isinstance(steps[5], ActionFlowStep)
+
+
+def test_extract_steps_builds_if_else_bodies() -> None:
+    body = "\n".join(
+        [
+            "if (a > 0)",
+            "begin",
+            "x <= 1;",
+            "end",
+            "else",
+            "begin",
+            "x <= 0;",
+            "end",
+        ]
+    )
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], IfFlowStep)
+    assert [step.label for step in steps[0].then_steps if isinstance(step, ActionFlowStep)] == ["x <= 1"]
+    assert [step.label for step in steps[0].else_steps if isinstance(step, ActionFlowStep)] == ["x <= 0"]
+
+
+def test_extract_steps_builds_case_labels() -> None:
+    body = "\n".join(
+        [
+            "case (state)",
+            "2'b00:",
+            "result <= 0;",
+            "2'b01:",
+            "result <= 1;",
+            "default:",
+            "result <= 2;",
+            "endcase",
+        ]
+    )
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], SwitchFlowStep)
+    assert [case.label for case in steps[0].cases] == ["2'b00", "2'b01", "default"]
+    assert steps[0].cases[0].steps and isinstance(steps[0].cases[0].steps[0], ActionFlowStep)
 
 
 def test_control_flow_extractor_builds_diagram_from_verilog_source() -> None:
