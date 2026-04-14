@@ -93,6 +93,8 @@ Below is the current state against the control-flow step dictionary (`ControlFlo
 | `SwitchFlowStep` | Partially supported | `case (...)` recognized and case items parsed into `SwitchCaseFlow`, but nested structures within cases may need refinement. |
 | `GuardFlowStep` | Not implemented | Swift-only concept; no direct Verilog mapping yet. |
 | `RepeatWhileFlowStep` | Supported | Equivalent `repeat (...)` with nested body fully parsed. |
+| `ForeverFlowStep` | Supported | `forever` loops with nested body fully parsed. |
+| `DisableFlowStep` | Supported | `disable` statements for breaking out of named blocks or loops. |
 | `DoCatchFlowStep` | Not implemented | Swift-only concept; keep unsupported for Verilog flow. |
 | `DeferFlowStep` | Not implemented | Swift-only concept; keep unsupported for Verilog flow. |
 

@@ -9,7 +9,10 @@ from swifta.domain.control_flow import (
     ActionFlowStep,
     ControlFlowDiagram,
     ControlFlowStep,
+    DeferFlowStep,
+    DisableFlowStep,
     ForInFlowStep,
+    ForeverFlowStep,
     FunctionControlFlow,
     IfFlowStep,
     RepeatWhileFlowStep,
@@ -142,6 +145,16 @@ def _parse_steps(
             steps.append(step)
             continue
 
+        if lower.startswith("forever "):
+            step, index = _parse_forever(lines, index)
+            steps.append(step)
+            continue
+
+        if lower.startswith("disable "):
+            step, index = _parse_disable(lines, index)
+            steps.append(step)
+            continue
+
         if lower.startswith("case "):
             step, index = _parse_case(lines, index)
             steps.append(step)
@@ -244,6 +257,18 @@ def _parse_repeat(lines: list[str], index: int) -> tuple[RepeatWhileFlowStep, in
     return RepeatWhileFlowStep(condition=condition, body_steps=tuple(body_steps)), index
 
 
+def _parse_forever(lines: list[str], index: int) -> tuple[ForeverFlowStep, int]:
+    index += 1  # Skip the "forever" line
+    body_steps, index = _parse_branch_body(lines, index)
+    return ForeverFlowStep(body_steps=tuple(body_steps)), index
+
+
+def _parse_disable(lines: list[str], index: int) -> tuple[DisableFlowStep, int]:
+    line = lines[index]
+    target = line[7:].strip().removesuffix(";")  # Remove "disable " prefix and semicolon
+    return DisableFlowStep(target=target), index + 1
+
+
 def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
     line = lines[index]
     expression = _extract_parenthesized(line[4:].strip()) or "expression"
@@ -304,6 +329,11 @@ def _single_line_step(line: str) -> ControlFlowStep:
     if lower.startswith("repeat "):
         condition = _extract_parenthesized(line[6:].strip()) or "condition"
         return RepeatWhileFlowStep(condition=condition, body_steps=())
+    if lower.startswith("forever"):
+        return ForeverFlowStep(body_steps=())
+    if lower.startswith("disable "):
+        target = line[7:].strip().removesuffix(";")
+        return DisableFlowStep(target=target)
     if lower.startswith("case "):
         expr = _extract_parenthesized(line[4:].strip()) or "expression"
         return SwitchFlowStep(expression=expr, cases=())
@@ -326,7 +356,9 @@ def _is_case_label_line(line: str) -> bool:
     stripped = line.strip()
     if stripped.lower().startswith("default:"):
         return True
-    return ":" in stripped and not stripped.lower().startswith(("if ", "for ", "while ", "repeat ", "case "))
+    return ":" in stripped and not stripped.lower().startswith(
+        ("if ", "for ", "while ", "repeat ", "case ")
+    )
 
 
 # Backward-compatible alias for downstream imports during migration.

@@ -76,6 +76,16 @@ class DeferFlowStep(ControlFlowStep):
 
 
 @dataclass(frozen=True, slots=True)
+class ForeverFlowStep(ControlFlowStep):
+    body_steps: tuple[ControlFlowStep, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DisableFlowStep(ControlFlowStep):
+    target: str
+
+
+@dataclass(frozen=True, slots=True)
 class FunctionControlFlow:
     name: str
     signature: str
@@ -93,4 +103,3 @@ class FunctionControlFlow:
 class ControlFlowDiagram:
     source_location: str
     functions: tuple[FunctionControlFlow, ...]
-
