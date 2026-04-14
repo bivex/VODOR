@@ -209,11 +209,30 @@ def _find_matching_end(text: str, begin_index: int) -> int:
 def _extract_steps(body: str) -> tuple[ControlFlowStep, ...]:
     cleaned = _strip_comments(body)
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    # Split compound lines like "end else begin" and "end else if ..." into separate lines
+    lines = _split_compound_end(lines)
     # Skip named begin labels like ": processing_block" at the start
     while lines and lines[0].startswith(":"):
         lines = lines[1:]
     steps, _ = _parse_steps(lines, 0, stop_prefixes=set())
     return tuple(steps)
+
+
+def _split_compound_end(lines: list[str]) -> list[str]:
+    """Split 'end else ...' on the same line into ['end', 'else ...']."""
+    result: list[str] = []
+    for line in lines:
+        lower = line.lower()
+        if lower.startswith("end ") and ("else" in lower[4:] or "join" in lower[4:]):
+            # "end else begin" → ["end", "else begin"]
+            # "end else if ..." → ["end", "else if ..."]
+            # "end join" → ["end", "join"]  (unlikely but safe)
+            after_end = line[3:].strip()
+            result.append("end")
+            result.append(after_end)
+        else:
+            result.append(line)
+    return result
 
 
 def _strip_comments(text: str) -> str:
@@ -327,21 +346,9 @@ def _parse_if(lines: list[str], index: int) -> tuple[IfFlowStep, int]:
     index += 1
 
     if has_begin_on_same_line:
-        # Parse until 'end' or line containing 'else'
-        then_steps = []
-        while index < len(lines):
-            line = lines[index]
-            lower = line.lower()
-            if lower.startswith("end") or "else" in lower:
-                break
-            if lower == "begin":
-                nested, index = _parse_steps(lines, index + 1, stop_prefixes={"end"})
-                then_steps.extend(nested)
-                if index < len(lines) and lines[index].lower().startswith("end"):
-                    index += 1
-                continue
-            # Single statement
-            then_steps.append(_single_line_step(line))
+        # Parse the then-body until matching 'end'
+        then_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
+        if index < len(lines) and lines[index].lower().startswith("end"):
             index += 1
     else:
         then_steps, index = _parse_branch_body(lines, index)
@@ -389,7 +396,16 @@ def _parse_if_after_header(
     index: int,
 ) -> tuple[IfFlowStep, int]:
     condition = _extract_parenthesized(header_line[2:].strip()) or "condition"
-    then_steps, index = _parse_branch_body(lines, index)
+
+    lower_header = header_line.lower()
+    has_begin_on_same_line = " begin" in lower_header
+
+    if has_begin_on_same_line:
+        then_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
+        if index < len(lines) and lines[index].lower().startswith("end"):
+            index += 1
+    else:
+        then_steps, index = _parse_branch_body(lines, index)
 
     else_steps: tuple[ControlFlowStep, ...] = ()
     if index < len(lines) and lines[index].lower().startswith("else"):
