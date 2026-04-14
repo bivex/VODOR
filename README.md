@@ -57,6 +57,7 @@ Every synchronous block uses these. Fully supported.
 | Nonblocking `<=` | yes | yes | Sequential logic assignments |
 | Blocking `=` | yes | yes | Combinational logic assignments |
 | `begin` / `end` | yes | yes | Flattened into parent sequence |
+| Named `begin : label` | yes | yes | Recognized and flattened |
 
 ### Tier 2 — Common patterns (most designs)
 
@@ -67,41 +68,43 @@ Used in state machines, testbenches, parameterized logic.
 | `for` loop | yes | yes | Header + body |
 | `forever` loop | yes | yes | Clock generation, infinite processes |
 | `disable` | yes | yes | Break out of named blocks / loops |
+| `while` loop | yes | yes | Condition + body |
+| `repeat` loop | yes | yes | Count + body |
 | `$display`, `$monitor`, etc. | flat | yes | Preserved as action text |
 | Task / function calls | flat | yes | Preserved as action text |
 
 ### Tier 3 — Testbench constructs
 
-Timing and concurrency constructs. No structural extraction — rendered as flat action text.
+Timing and concurrency constructs. Structurally extracted with dedicated diagram nodes.
 
 | Construct | Extracted | Rendered | Notes |
 |-----------|:---------:|:--------:|-------|
-| `while` loop | yes | yes | Condition + body |
-| `repeat` loop | yes | yes | Count + body |
-| `@` event control | no | flat | `@(posedge clk)` — timing, not control flow |
-| `#` delay control | no | flat | `#10 x = 1;` — timing, not control flow |
-| `wait (expr)` | no | flat | Level-sensitive wait |
-| `fork` / `join` | no | flat | Parallelism can't map to NS diagrams |
-| `->` event trigger | no | flat | Preserved as text |
-| `assign`/`force`/`release` | no | flat | Procedural continuous assignments |
+| `fork` / `join` / `join_any` / `join_none` | yes | yes | Fork body + join type footer |
+| `#` delay control | yes | yes | Delay value + body |
+| `@` event control | yes | yes | Event expression + body |
+| `wait (expr)` | yes | yes | Condition + body |
+| `->` event trigger | flat | yes | Preserved as text |
+| `assign`/`force`/`release` | flat | yes | Procedural continuous assignments |
 
 ### Structural blocks
 
 | Construct | Handled | Notes |
 |-----------|:-------:|-------|
-| `always @(event)` | yes | Extracted as function panel |
+| `always @(event)` | yes | Extracted as function panel with sensitivity list |
 | `initial begin` | yes | Extracted as function panel |
-| Single-statement `always` | no | Requires `begin`/`end` wrapper |
+| Single-statement `always` | yes | No `begin`/`end` wrapper required |
 | `function` / `task` bodies | no | Only always/initial scanned |
 | `generate` blocks | no | Elaboration-time, not procedural |
 
+### Comments
+
+Comments inside procedural bodies are stripped before extraction — no spurious action nodes.
+
 ### Known limitations
 
-- **`casez`/`casex`** not yet matched by extractor (only `case ` prefix detected).
-- **Named `begin : label`** blocks not recognized as `begin` by extractor — fall to flat action.
-- **Single-statement always** blocks (no `begin`/`end`) are skipped entirely by the scanner.
-- **Comments** inside procedural bodies are rendered as action nodes.
 - **Multi-line statements** may not parse correctly — extractor works line-by-line.
+- **`function`/`task` bodies** are not yet extracted — only `always`/`initial` blocks are scanned.
+- **`generate` blocks** are elaboration-time and not treated as procedural flow.
 
 ## Constraints
 
