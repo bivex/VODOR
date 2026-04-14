@@ -87,22 +87,21 @@ Below is the current state against the control-flow step dictionary (`ControlFlo
 | Step / Action | Status now | Notes |
 | --- | --- | --- |
 | `ActionFlowStep` | Supported | Any non-recognized procedural line becomes action text. |
-| `IfFlowStep` | Partially supported | `if (...)` header recognized, but nested `then`/`else` bodies are not yet structurally parsed. |
-| `WhileFlowStep` | Partially supported | `while (...)` recognized, body currently empty in structured form. |
-| `ForInFlowStep` | Partially supported | Verilog `for (...)` mapped into header string; body currently empty. |
-| `SwitchFlowStep` | Partially supported | `case (...)` recognized, but case items are not expanded into `SwitchCaseFlow`. |
+| `IfFlowStep` | Supported | `if (...)` with nested `then`/`else` bodies fully parsed structurally. |
+| `WhileFlowStep` | Supported | `while (...)` with nested body fully parsed. |
+| `ForInFlowStep` | Supported | Verilog `for (...)` with nested body fully parsed. |
+| `SwitchFlowStep` | Partially supported | `case (...)` recognized and case items parsed into `SwitchCaseFlow`, but nested structures within cases may need refinement. |
 | `GuardFlowStep` | Not implemented | Swift-only concept; no direct Verilog mapping yet. |
-| `RepeatWhileFlowStep` | Not implemented | Equivalent `repeat (...)` is not yet mapped. |
+| `RepeatWhileFlowStep` | Supported | Equivalent `repeat (...)` with nested body fully parsed. |
 | `DoCatchFlowStep` | Not implemented | Swift-only concept; keep unsupported for Verilog flow. |
 | `DeferFlowStep` | Not implemented | Swift-only concept; keep unsupported for Verilog flow. |
 
 ### What should be added next
 
-1. Parse `if/else` blocks recursively into `then_steps` / `else_steps`.
-2. Parse `begin/end` bodies for `while` and `for`.
-3. Map Verilog `case` items into `SwitchCaseFlow` labels and nested steps.
-4. Add `repeat (...)` -> `RepeatWhileFlowStep` mapping (or introduce Verilog-specific step if needed).
-5. Decide whether to keep Swift-only step types as legacy compatibility only, or split dictionary into language-specific schemas.
+1. Refine `SwitchFlowStep` case parsing to handle nested control flow within case bodies.
+2. Add support for more complex Verilog constructs (e.g., disable, wait, event triggers).
+3. Consider language-specific refinements or splitting Swift-only step types into separate schemas.
+4. Add support for Verilog-specific control flow patterns not covered by current steps.
 
 ## Constraints and honesty
 
