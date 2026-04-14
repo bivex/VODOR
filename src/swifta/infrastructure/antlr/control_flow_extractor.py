@@ -32,6 +32,7 @@ from swifta.domain.ports import VerilogControlFlowExtractor
 class _BlockSlice:
     name: str
     body: str
+    kind: str = "always"
     sensitivity: str | None = None
 
 
@@ -41,7 +42,7 @@ class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
         functions = tuple(
             FunctionControlFlow(
                 name=block.name,
-                signature=f"always {block.name}",
+                signature=_build_signature(block),
                 container=None,
                 steps=_extract_steps(block.body),
                 sensitivity=block.sensitivity,
@@ -85,7 +86,7 @@ def _scan_procedural_blocks(source_text: str) -> tuple[_BlockSlice, ...]:
                 continue
             body = source_text[after_sens:semi].strip()
             if body:
-                blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body, sensitivity=sensitivity))
+                blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body, kind=kind, sensitivity=sensitivity))
                 counter += 1
             index = semi + 1
             continue
@@ -95,7 +96,7 @@ def _scan_procedural_blocks(source_text: str) -> tuple[_BlockSlice, ...]:
             index = after_sens
             continue
         body = source_text[begin_index + len("begin") : end_index].strip()
-        blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body, sensitivity=sensitivity))
+        blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body, kind=kind, sensitivity=sensitivity))
         counter += 1
         index = end_index + len("end")
     return tuple(blocks)
@@ -105,6 +106,13 @@ def _next_statement_boundary(text: str, start: int) -> int:
     """Return index of the first ';' after start, or len(text) if none."""
     idx = text.find(";", start)
     return idx if idx != -1 else len(text)
+
+
+def _build_signature(block: _BlockSlice) -> str:
+    parts = [block.kind]
+    if block.sensitivity:
+        parts.append(f"@({block.sensitivity})")
+    return " ".join(parts)
 
 
 def _find_matching_end(text: str, begin_index: int) -> int:
@@ -131,6 +139,9 @@ def _find_matching_end(text: str, begin_index: int) -> int:
 def _extract_steps(body: str) -> tuple[ControlFlowStep, ...]:
     cleaned = _strip_comments(body)
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    # Skip named begin labels like ": processing_block" at the start
+    while lines and lines[0].startswith(":"):
+        lines = lines[1:]
     steps, _ = _parse_steps(lines, 0, stop_prefixes=set())
     return tuple(steps)
 
@@ -447,9 +458,14 @@ def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
             break
 
         if _is_case_label_line(current):
-            label = current.split(":", maxsplit=1)[0].strip()
+            label, _, after_colon = current.partition(":")
+            label = label.strip()
+            after_colon = after_colon.strip().removesuffix(";").strip()
             index += 1
             case_steps: list[ControlFlowStep] = []
+            # If there's a statement on the same line after the colon, capture it
+            if after_colon:
+                case_steps.append(ActionFlowStep(after_colon))
             while index < len(lines):
                 next_line = lines[index]
                 if next_line.lower().startswith("endcase") or _is_case_label_line(next_line):
