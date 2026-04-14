@@ -80,9 +80,38 @@ uv run swifta nassi-file path/to/module.v --out output/module.nassi.html
 uv run swifta nassi-dir path/to/project --out output/nassi-bundle
 ```
 
+## Action/Step Support Matrix
+
+Below is the current state against the control-flow step dictionary (`ControlFlowStep` model in `src/swifta/domain/control_flow.py`).
+
+| Step / Action | Status now | Notes |
+| --- | --- | --- |
+| `ActionFlowStep` | Supported | Any non-recognized procedural line becomes action text. |
+| `IfFlowStep` | Partially supported | `if (...)` header recognized, but nested `then`/`else` bodies are not yet structurally parsed. |
+| `WhileFlowStep` | Partially supported | `while (...)` recognized, body currently empty in structured form. |
+| `ForInFlowStep` | Partially supported | Verilog `for (...)` mapped into header string; body currently empty. |
+| `SwitchFlowStep` | Partially supported | `case (...)` recognized, but case items are not expanded into `SwitchCaseFlow`. |
+| `GuardFlowStep` | Not implemented | Swift-only concept; no direct Verilog mapping yet. |
+| `RepeatWhileFlowStep` | Not implemented | Equivalent `repeat (...)` is not yet mapped. |
+| `DoCatchFlowStep` | Not implemented | Swift-only concept; keep unsupported for Verilog flow. |
+| `DeferFlowStep` | Not implemented | Swift-only concept; keep unsupported for Verilog flow. |
+
+### What should be added next
+
+1. Parse `if/else` blocks recursively into `then_steps` / `else_steps`.
+2. Parse `begin/end` bodies for `while` and `for`.
+3. Map Verilog `case` items into `SwitchCaseFlow` labels and nested steps.
+4. Add `repeat (...)` -> `RepeatWhileFlowStep` mapping (or introduce Verilog-specific step if needed).
+5. Decide whether to keep Swift-only step types as legacy compatibility only, or split dictionary into language-specific schemas.
+
 ## Constraints and honesty
 
 The current ANTLR grammar is sourced from `antlr/grammars-v4/verilog/verilog`. Like any community grammar, it can lag behind vendor-specific dialects and unusual macro-heavy codebases. Swifta surfaces grammar version and diagnostics in runtime reports so downstream consumers can make informed integration decisions.
+
+## Migration Note
+
+The project is migrated to Verilog input (`.v`) across parser, repository, CLI, and tests.  
+Some symbol names still include legacy "Swift" aliases for temporary backward compatibility in imports only.
 
 ## Next Steps
 
