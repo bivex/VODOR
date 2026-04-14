@@ -34,6 +34,7 @@ class _BlockSlice:
     body: str
     kind: str = "always"
     sensitivity: str | None = None
+    signature: str | None = None
 
 
 class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
@@ -57,6 +58,19 @@ class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
 
 def _scan_procedural_blocks(source_text: str) -> tuple[_BlockSlice, ...]:
     source_text = _strip_comments(source_text)
+    blocks: list[_BlockSlice] = []
+
+    # Scan always/initial blocks
+    blocks.extend(_scan_always_initial(source_text))
+
+    # Scan function/task blocks
+    blocks.extend(_scan_function_task(source_text))
+
+    # Preserve source order
+    return tuple(blocks)
+
+
+def _scan_always_initial(source_text: str) -> list[_BlockSlice]:
     pattern = re.compile(r"\b(always|initial)\b", re.IGNORECASE)
     blocks: list[_BlockSlice] = []
     index = 0
@@ -99,7 +113,61 @@ def _scan_procedural_blocks(source_text: str) -> tuple[_BlockSlice, ...]:
         blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body, kind=kind, sensitivity=sensitivity))
         counter += 1
         index = end_index + len("end")
-    return tuple(blocks)
+    return blocks
+
+
+def _scan_function_task(source_text: str) -> list[_BlockSlice]:
+    pattern = re.compile(r"\b(function|task)\b", re.IGNORECASE)
+    blocks: list[_BlockSlice] = []
+    index = 0
+    while True:
+        match = pattern.search(source_text, index)
+        if not match:
+            break
+        kind = match.group(1).lower()
+        after_keyword = match.end()
+
+        # Extract the rest of the header line (until ';')
+        semi = source_text.find(";", after_keyword)
+        if semi == -1:
+            index = after_keyword
+            continue
+        header_line = source_text[after_keyword:semi].strip()
+
+        # Extract function/task name — last identifier in the header
+        name = _extract_last_identifier(header_line) or f"{kind}_anon"
+
+        # Find endfunction / endtask
+        end_keyword = f"end{kind}"
+        end_pattern = re.compile(rf"\b{end_keyword}\b", re.IGNORECASE)
+        end_match = end_pattern.search(source_text, semi + 1)
+        if end_match is None:
+            index = semi + 1
+            continue
+
+        body = source_text[semi + 1 : end_match.start()].strip()
+        # Build signature from the full header
+        signature = f"{kind} {header_line}"
+
+        blocks.append(_BlockSlice(name=name, body=body, kind=kind, sensitivity=None, signature=signature))
+        index = end_match.end()
+
+    return blocks
+
+
+def _extract_last_identifier(text: str) -> str | None:
+    """Extract the last Verilog identifier from a header line."""
+    # Match word characters, allowing brackets for return types like [7:0]
+    tokens = re.findall(r"[a-zA-Z_]\w*", text)
+    # Filter out Verilog keywords that commonly appear in headers
+    keywords = {
+        "input", "output", "inout", "reg", "wire", "integer",
+        "signed", "unsigned", "begin", "end", "automatic",
+    }
+    for token in reversed(tokens):
+        if token.lower() not in keywords:
+            return token
+    return tokens[-1] if tokens else None
 
 
 def _next_statement_boundary(text: str, start: int) -> int:
@@ -109,6 +177,8 @@ def _next_statement_boundary(text: str, start: int) -> int:
 
 
 def _build_signature(block: _BlockSlice) -> str:
+    if block.signature:
+        return block.signature
     parts = [block.kind]
     if block.sensitivity:
         parts.append(f"@({block.sensitivity})")

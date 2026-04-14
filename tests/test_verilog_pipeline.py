@@ -748,3 +748,101 @@ class TestSignatureBuilding:
             SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
         )
         assert diagram.functions[0].qualified_name == "always_1"
+
+
+class TestScanFunctionTask:
+    def test_function_extraction(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "function [7:0] adder;",
+            "  input [7:0] a;",
+            "  input [7:0] b;",
+            "  begin",
+            "    adder = a + b;",
+            "  end",
+            "endfunction",
+            "endmodule",
+        ])
+        diagram = AntlrVerilogControlFlowExtractor().extract(
+            SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
+        )
+        func_names = [f.name for f in diagram.functions]
+        assert "adder" in func_names
+        adder = [f for f in diagram.functions if f.name == "adder"][0]
+        assert adder.signature.startswith("function")
+        assert any("a + b" in s.label for s in adder.steps if isinstance(s, ActionFlowStep))
+
+    def test_task_extraction(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "task reset_all;",
+            "  begin",
+            "    x <= 0;",
+            "    y <= 0;",
+            "  end",
+            "endtask",
+            "endmodule",
+        ])
+        diagram = AntlrVerilogControlFlowExtractor().extract(
+            SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
+        )
+        task_names = [f.name for f in diagram.functions]
+        assert "reset_all" in task_names
+        reset = [f for f in diagram.functions if f.name == "reset_all"][0]
+        assert reset.signature.startswith("task")
+        assert len(reset.steps) >= 1
+
+    def test_function_with_control_flow(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "function [7:0] clamp;",
+            "  input [7:0] val;",
+            "  begin",
+            "    if (val > 8'hFF)",
+            "      clamp = 8'hFF;",
+            "    else",
+            "      clamp = val;",
+            "  end",
+            "endfunction",
+            "endmodule",
+        ])
+        diagram = AntlrVerilogControlFlowExtractor().extract(
+            SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
+        )
+        clamp = [f for f in diagram.functions if f.name == "clamp"][0]
+        # Body includes input declarations + begin/end block with if/else
+        assert len(clamp.steps) >= 1
+        # The if should be somewhere in the steps
+        if_steps = [s for s in clamp.steps if isinstance(s, IfFlowStep)]
+        assert len(if_steps) >= 1
+
+    def test_function_always_initial_coexist(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin x <= 1; end",
+            "initial begin y <= 0; end",
+            "function [7:0] compute; begin compute = x + y; end endfunction",
+            "endmodule",
+        ])
+        diagram = AntlrVerilogControlFlowExtractor().extract(
+            SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
+        )
+        names = [f.name for f in diagram.functions]
+        assert "always_1" in names
+        assert "initial_2" in names
+        assert "compute" in names
+
+    def test_function_name_from_header(self) -> None:
+        """Function name is the last identifier in the header line."""
+        source = "\n".join([
+            "module top;",
+            "function automatic [15:0] multiply;",
+            "  begin multiply = 0; end",
+            "endfunction",
+            "endmodule",
+        ])
+        diagram = AntlrVerilogControlFlowExtractor().extract(
+            SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
+        )
+        func_names = [f.name for f in diagram.functions]
+        assert "multiply" in func_names

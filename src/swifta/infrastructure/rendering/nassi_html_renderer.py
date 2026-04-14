@@ -523,6 +523,40 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
         color: var(--muted);
       }}
 
+      /* ── Sensitivity badge ── */
+      .function-meta {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 5px;
+        align-items: center;
+      }}
+      .sensitivity-badge {{
+        display: inline-block;
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        padding: 2px 8px;
+        border-radius: 4px;
+        border: 1px solid var(--blue);
+        background: rgba(130, 170, 255, 0.14);
+        color: var(--blue);
+      }}
+      .kind-badge {{
+        display: inline-block;
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 2px 8px;
+        border-radius: 4px;
+        border: 1px solid var(--border-strong);
+        background: var(--surface-3);
+        color: var(--muted);
+      }}
+
       @media (max-width: 800px) {{
         body {{ padding: 12px; }}
         .viewer {{
@@ -570,11 +604,16 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
 """
 
     def _render_function(self, function) -> str:
+        badges = f'<span class="kind-badge">{escape(function.signature.split()[0] if function.signature else "block")}</span>'
+        if function.sensitivity:
+            badges += f' <span class="sensitivity-badge">@({escape(function.sensitivity)})</span>'
+
         return (
             '<section class="function-panel">'
             '<div class="function-head">'
             f'<h2 class="function-title">{escape(function.qualified_name)}</h2>'
             f'<div class="function-signature">{escape(function.signature)}</div>'
+            f'<div class="function-meta">{badges}</div>'
             "</div>"
             '<div class="function-body">'
             f"{self._render_sequence(function.steps, depth=0)}"

@@ -300,3 +300,66 @@ class TestNassiHtmlUnsupported:
         import pytest
         with pytest.raises(TypeError, match="unsupported step type"):
             _render_steps(FakeStep())
+
+
+# ── Sensitivity badge ──
+
+
+class TestNassiHtmlSensitivityBadge:
+    def test_always_with_sensitivity_shows_badge(self) -> None:
+        diagram = ControlFlowDiagram(
+            source_location="test.v",
+            functions=(
+                FunctionControlFlow(
+                    name="always_1",
+                    signature="always @(posedge clk)",
+                    container=None,
+                    steps=(ActionFlowStep("x <= 1"),),
+                    sensitivity="posedge clk",
+                ),
+            ),
+        )
+        html = HtmlNassiDiagramRenderer().render(diagram)
+        assert "sensitivity-badge" in html
+        assert "posedge clk" in html
+        assert "kind-badge" in html
+
+    def test_initial_no_sensitivity_no_badge(self) -> None:
+        diagram = ControlFlowDiagram(
+            source_location="test.v",
+            functions=(
+                FunctionControlFlow(
+                    name="initial_1",
+                    signature="initial",
+                    container=None,
+                    steps=(ActionFlowStep("x <= 0"),),
+                    sensitivity=None,
+                ),
+            ),
+        )
+        html = HtmlNassiDiagramRenderer().render(diagram)
+        # Extract just the function panel section (after </style>)
+        panel_start = html.index('<section class="function-panel">')
+        panel_end = html.index("</section>", panel_start) + len("</section>")
+        panel_html = html[panel_start:panel_end]
+        assert "function-meta" in panel_html
+        assert "sensitivity-badge" not in panel_html
+        assert "@(" not in panel_html
+
+    def test_function_shows_kind_badge(self) -> None:
+        diagram = ControlFlowDiagram(
+            source_location="test.v",
+            functions=(
+                FunctionControlFlow(
+                    name="adder",
+                    signature="function [7:0] adder",
+                    container=None,
+                    steps=(ActionFlowStep("adder = a + b"),),
+                    sensitivity=None,
+                ),
+            ),
+        )
+        html = HtmlNassiDiagramRenderer().render(diagram)
+        assert "kind-badge" in html
+        assert "function" in html
+        assert "adder" in html
