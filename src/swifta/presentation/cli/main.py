@@ -24,7 +24,9 @@ from swifta.application.verilog_export import (
     VerilogExportService,
 )
 from swifta.domain.errors import SwiftaError
-from swifta.infrastructure.antlr.control_flow_extractor import AntlrVerilogControlFlowExtractor
+from swifta.infrastructure.antlr.antlr_control_flow_extractor import (
+    AntlrVerilogControlFlowExtractor,
+)
 from swifta.infrastructure.antlr.parser_adapter import AntlrVerilogSyntaxParser
 from swifta.infrastructure.filesystem.source_repository import FileSystemSourceRepository
 from swifta.infrastructure.rendering.nassi_html_renderer import HtmlNassiDiagramRenderer
@@ -47,7 +49,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "parse-file":
             report = _build_parse_service().parse_file(ParseFileCommand(path=args.path))
         elif args.command == "parse-dir":
-            report = _build_parse_service().parse_directory(ParseDirectoryCommand(root_path=args.path))
+            report = _build_parse_service().parse_directory(
+                ParseDirectoryCommand(root_path=args.path)
+            )
         elif args.command == "nassi-file":
             document = _build_nassi_service().build_file_diagram(
                 BuildNassiDiagramCommand(path=args.path)
@@ -238,9 +242,7 @@ def _resolve_output_directory(input_path: str, explicit_output_path: str | None)
     return resolved_input.with_name(f"{resolved_input.name}.nassi")
 
 
-def _resolve_verilog_output_path(
-    input_path: str, explicit_output_path: str | None
-) -> Path:
+def _resolve_verilog_output_path(input_path: str, explicit_output_path: str | None) -> Path:
     if explicit_output_path:
         return Path(explicit_output_path).expanduser().resolve()
 
@@ -248,9 +250,7 @@ def _resolve_verilog_output_path(
     return resolved_input.with_suffix(".v")
 
 
-def _resolve_verilog_output_directory(
-    input_path: str, explicit_output_path: str | None
-) -> Path:
+def _resolve_verilog_output_directory(input_path: str, explicit_output_path: str | None) -> Path:
     if explicit_output_path:
         return Path(explicit_output_path).expanduser().resolve()
 

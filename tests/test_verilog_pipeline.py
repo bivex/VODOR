@@ -14,8 +14,10 @@ from swifta.domain.control_flow import (
     WhileFlowStep,
 )
 from swifta.domain.model import SourceUnit, SourceUnitId, StructuralElementKind
-from swifta.infrastructure.antlr.control_flow_extractor import (
+from swifta.infrastructure.antlr.antlr_control_flow_extractor import (
     AntlrVerilogControlFlowExtractor,
+)
+from swifta.infrastructure.antlr.control_flow_extractor import (
     _extract_steps,
     _scan_procedural_blocks,
 )
@@ -136,8 +138,12 @@ def test_extract_steps_builds_if_else_bodies() -> None:
     steps = _extract_steps(body)
     assert len(steps) == 1
     assert isinstance(steps[0], IfFlowStep)
-    assert [step.label for step in steps[0].then_steps if isinstance(step, ActionFlowStep)] == ["x <= 1"]
-    assert [step.label for step in steps[0].else_steps if isinstance(step, ActionFlowStep)] == ["x <= 0"]
+    assert [step.label for step in steps[0].then_steps if isinstance(step, ActionFlowStep)] == [
+        "x <= 1"
+    ]
+    assert [step.label for step in steps[0].else_steps if isinstance(step, ActionFlowStep)] == [
+        "x <= 0"
+    ]
 
 
 def test_extract_steps_builds_case_labels() -> None:

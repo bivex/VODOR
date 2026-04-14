@@ -171,11 +171,41 @@ def _parse_steps(
 
 def _parse_if(lines: list[str], index: int) -> tuple[IfFlowStep, int]:
     line = lines[index]
-    condition = _extract_parenthesized(line[2:].strip()) or "condition"
+    lower_line = line.lower()
+    has_begin_on_same_line = " begin" in lower_line
+
+    # Extract condition
+    if_part = line[2:].strip()
+    if has_begin_on_same_line:
+        if_part = if_part.replace(" begin", "").strip()
+    condition = _extract_parenthesized(if_part) or "condition"
+
     index += 1
-    then_steps, index = _parse_branch_body(lines, index)
+
+    if has_begin_on_same_line:
+        # Parse until 'end' or line containing 'else'
+        then_steps = []
+        while index < len(lines):
+            line = lines[index]
+            lower = line.lower()
+            if lower.startswith("end") or "else" in lower:
+                break
+            if lower == "begin":
+                nested, index = _parse_steps(lines, index + 1, stop_prefixes={"end"})
+                then_steps.extend(nested)
+                if index < len(lines) and lines[index].lower().startswith("end"):
+                    index += 1
+                continue
+            # Single statement
+            then_steps.append(_single_line_step(line))
+            index += 1
+    else:
+        then_steps, index = _parse_branch_body(lines, index)
 
     else_steps: tuple[ControlFlowStep, ...] = ()
+    # Skip any 'end' lines and look for 'else'
+    while index < len(lines) and lines[index].lower().startswith("end"):
+        index += 1
     if index < len(lines) and lines[index].lower().startswith("else"):
         else_line = lines[index]
         if else_line.lower().startswith("else if "):
@@ -186,8 +216,17 @@ def _parse_if(lines: list[str], index: int) -> tuple[IfFlowStep, int]:
             )
             else_steps = (nested,)
         else:
+            # Check if 'begin' is on the same line as 'else'
+            has_begin_on_same_line = " begin" in else_line.lower()
             index += 1
-            parsed_else, index = _parse_branch_body(lines, index)
+
+            if has_begin_on_same_line:
+                # Parse until 'end'
+                parsed_else, index = _parse_steps(lines, index, stop_prefixes={"end"})
+                if index < len(lines) and lines[index].lower().startswith("end"):
+                    index += 1
+            else:
+                parsed_else, index = _parse_branch_body(lines, index)
             else_steps = tuple(parsed_else)
 
     return (
@@ -235,31 +274,93 @@ def _parse_if_after_header(
 
 def _parse_while(lines: list[str], index: int) -> tuple[WhileFlowStep, int]:
     line = lines[index]
-    condition = _extract_parenthesized(line[5:].strip()) or "condition"
+    lower_line = line.lower()
+    has_begin_on_same_line = " begin" in lower_line
+
+    # Extract condition
+    while_part = line[5:].strip()
+    if has_begin_on_same_line:
+        while_part = while_part.replace(" begin", "").strip()
+    condition = _extract_parenthesized(while_part) or "condition"
+
     index += 1
-    body_steps, index = _parse_branch_body(lines, index)
+
+    if has_begin_on_same_line:
+        # Parse until 'end'
+        body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
+        if index < len(lines) and lines[index].lower().startswith("end"):
+            index += 1
+    else:
+        body_steps, index = _parse_branch_body(lines, index)
+
     return WhileFlowStep(condition=condition, body_steps=tuple(body_steps)), index
 
 
 def _parse_for(lines: list[str], index: int) -> tuple[ForInFlowStep, int]:
     line = lines[index]
-    header = _extract_parenthesized(line[3:].strip()) or "i in range"
+    # Check if 'begin' is on the same line as 'for'
+    lower_line = line.lower()
+    has_begin_on_same_line = " begin" in lower_line
+
+    # Extract header
+    for_part = line[3:].strip()
+    if has_begin_on_same_line:
+        for_part = for_part.replace(" begin", "").strip()
+    header = _extract_parenthesized(for_part) or "i in range"
+
     index += 1
-    body_steps, index = _parse_branch_body(lines, index)
+
+    if has_begin_on_same_line:
+        # Parse until 'end'
+        body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
+        if index < len(lines) and lines[index].lower().startswith("end"):
+            index += 1
+    else:
+        # Single statement or begin on next line
+        body_steps, index = _parse_branch_body(lines, index)
+
     return ForInFlowStep(header=header, body_steps=tuple(body_steps)), index
 
 
 def _parse_repeat(lines: list[str], index: int) -> tuple[RepeatWhileFlowStep, int]:
     line = lines[index]
-    condition = _extract_parenthesized(line[6:].strip()) or "condition"
+    lower_line = line.lower()
+    has_begin_on_same_line = " begin" in lower_line
+
+    # Extract condition
+    repeat_part = line[6:].strip()
+    if has_begin_on_same_line:
+        repeat_part = repeat_part.replace(" begin", "").strip()
+    condition = _extract_parenthesized(repeat_part) or "condition"
+
     index += 1
-    body_steps, index = _parse_branch_body(lines, index)
+
+    if has_begin_on_same_line:
+        # Parse until 'end'
+        body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
+        if index < len(lines) and lines[index].lower().startswith("end"):
+            index += 1
+    else:
+        body_steps, index = _parse_branch_body(lines, index)
+
     return RepeatWhileFlowStep(condition=condition, body_steps=tuple(body_steps)), index
 
 
 def _parse_forever(lines: list[str], index: int) -> tuple[ForeverFlowStep, int]:
-    index += 1  # Skip the "forever" line
-    body_steps, index = _parse_branch_body(lines, index)
+    line = lines[index]
+    lower_line = line.lower()
+    has_begin_on_same_line = " begin" in lower_line
+
+    index += 1
+
+    if has_begin_on_same_line:
+        # Parse until 'end'
+        body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
+        if index < len(lines) and lines[index].lower().startswith("end"):
+            index += 1
+    else:
+        body_steps, index = _parse_branch_body(lines, index)
+
     return ForeverFlowStep(body_steps=tuple(body_steps)), index
 
 
