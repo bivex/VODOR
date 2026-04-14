@@ -11,15 +11,19 @@ from swifta.domain.control_flow import (
     ControlFlowDiagram,
     ControlFlowStep,
     DeferFlowStep,
+    DelayFlowStep,
     DisableFlowStep,
     DoCatchFlowStep,
+    EventWaitFlowStep,
     ForeverFlowStep,
+    ForkJoinFlowStep,
     ForInFlowStep,
     GuardFlowStep,
     IfFlowStep,
     RepeatWhileFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
+    WaitConditionFlowStep,
     WhileFlowStep,
 )
 from swifta.domain.ports import NassiDiagramRenderer
@@ -98,6 +102,10 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
         --defer-fill:  #241d0d;
         --yes-fill:    #102217;
         --no-fill:     #251019;
+        --fork-fill:   #1a2a24;
+        --delay-fill:  #22191a;
+        --event-fill:  #191a28;
+        --wait-fill:   #1d2218;
         --action-fill: var(--surface-2);
         --note-fill:   #101720;
 
@@ -301,12 +309,20 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
       .ns-switch  {{ background: var(--switch-fill); }}
       .ns-do-catch {{ background: var(--do-fill); }}
       .ns-defer   {{ background: var(--defer-fill); }}
+      .ns-fork    {{ background: var(--fork-fill); }}
+      .ns-delay   {{ background: var(--delay-fill); }}
+      .ns-event   {{ background: var(--event-fill); }}
+      .ns-wait    {{ background: var(--wait-fill); }}
 
       .ns-guard   > .ns-header {{ background: var(--orange-dim); color: var(--orange); }}
       .ns-switch  > .ns-header,
       .case-title              {{ background: var(--teal-dim);   color: var(--teal);   }}
       .ns-do-catch > .ns-header {{ background: var(--purple-dim); color: var(--purple); }}
       .ns-defer   > .ns-header {{ background: var(--amber-dim);  color: var(--amber);  }}
+      .ns-fork    > .ns-header {{ background: var(--teal-dim);   color: var(--teal);   }}
+      .ns-delay   > .ns-header {{ background: var(--red-dim);    color: var(--red);    }}
+      .ns-event   > .ns-header {{ background: var(--purple-dim); color: var(--purple); }}
+      .ns-wait    > .ns-header {{ background: var(--green-dim);  color: var(--green);  }}
 
       /* Left accent stripes */
       .ns-node.ns-loop,
@@ -315,6 +331,10 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
       .ns-node.ns-switch  {{ border-left: 3px solid var(--teal); }}
       .ns-node.ns-do-catch {{ border-left: 3px solid var(--purple); }}
       .ns-node.ns-defer   {{ border-left: 3px solid var(--amber); }}
+      .ns-node.ns-fork    {{ border-left: 3px solid var(--teal); }}
+      .ns-node.ns-delay   {{ border-left: 3px solid var(--red); }}
+      .ns-node.ns-event   {{ border-left: 3px solid var(--purple); }}
+      .ns-node.ns-wait    {{ border-left: 3px solid var(--green); }}
 
       /* Depth tinting */
       .ns-depth-1 > .ns-node {{ background-color: rgba(255,255,255,0.012); }}
@@ -655,6 +675,20 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
                 "</div>"
                 "</div>"
             )
+        if isinstance(step, ForkJoinFlowStep):
+            return (
+                f'<div class="ns-node ns-fork">'
+                f"{self._render_header('Fork')}"
+                f"{self._render_sequence(step.body_steps, depth=depth + 1)}"
+                f"{self._render_footer(step.join_type)}"
+                "</div>"
+            )
+        if isinstance(step, DelayFlowStep):
+            return self._render_single_body(f"#{step.delay}", step.body_steps, depth=depth, css_class="ns-delay")
+        if isinstance(step, EventWaitFlowStep):
+            return self._render_single_body(f"@ {step.event}", step.body_steps, depth=depth, css_class="ns-event")
+        if isinstance(step, WaitConditionFlowStep):
+            return self._render_single_body(f"Wait {step.condition}", step.body_steps, depth=depth, css_class="ns-wait")
         raise TypeError(f"unsupported step type: {type(step)!r}")
 
     def _render_case(self, case: SwitchCaseFlow) -> str:

@@ -7,10 +7,16 @@ import pytest
 from swifta.domain.errors import InputValidationError
 from swifta.domain.control_flow import (
     ActionFlowStep,
+    DelayFlowStep,
+    EventWaitFlowStep,
     ForInFlowStep,
+    ForkJoinFlowStep,
+    ForeverFlowStep,
+    DisableFlowStep,
     IfFlowStep,
     RepeatWhileFlowStep,
     SwitchFlowStep,
+    WaitConditionFlowStep,
     WhileFlowStep,
 )
 from swifta.domain.model import SourceUnit, SourceUnitId, StructuralElementKind
@@ -201,3 +207,166 @@ def test_source_repository_rejects_non_verilog_extension(tmp_path) -> None:
     repository = FileSystemSourceRepository()
     with pytest.raises(InputValidationError, match=r"expected a \.v file"):
         repository.load_file(str(source_file))
+
+
+def test_extract_steps_handles_casez() -> None:
+    body = "\n".join([
+        "casez (data)",
+        "8'b1???_????: result <= 8'hFF;",
+        "default: result <= 8'h00;",
+        "endcase",
+    ])
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], SwitchFlowStep)
+    assert len(steps[0].cases) == 2
+
+
+def test_extract_steps_handles_casex() -> None:
+    body = "\n".join([
+        "casex (data)",
+        "8'b1xxx_xxxx: result <= 8'hFE;",
+        "default: result <= 8'h00;",
+        "endcase",
+    ])
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], SwitchFlowStep)
+    assert len(steps[0].cases) == 2
+
+
+def test_extract_steps_strips_comments() -> None:
+    body = "\n".join([
+        "// This is a comment",
+        "result <= data_in; /* inline block comment */",
+        "accumulator <= accumulator + 1;",
+    ])
+    steps = _extract_steps(body)
+    # Comment line should NOT become an action step
+    assert len(steps) == 2
+    assert all(isinstance(s, ActionFlowStep) for s in steps)
+
+
+def test_extract_steps_handles_named_begin() -> None:
+    body = "\n".join([
+        "begin : my_block",
+        "result <= data_in;",
+        "end",
+    ])
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], ActionFlowStep)
+
+
+def test_scan_single_statement_always() -> None:
+    source = "module top; always @(posedge clk) result <= data_in; endmodule\n"
+    blocks = _scan_procedural_blocks(source)
+    assert len(blocks) == 1
+    assert "result <= data_in" in blocks[0].body
+
+
+def test_scan_captures_sensitivity_list() -> None:
+    source = "module top; always @(posedge clk or negedge rst) begin x <= 1; end endmodule\n"
+    blocks = _scan_procedural_blocks(source)
+    assert len(blocks) == 1
+    assert blocks[0].sensitivity is not None
+    assert "posedge clk" in blocks[0].sensitivity
+
+
+def test_extract_steps_handles_fork_join() -> None:
+    body = "\n".join([
+        "fork",
+        "result <= data_in;",
+        "accumulator <= 0;",
+        "join",
+    ])
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], ForkJoinFlowStep)
+    assert steps[0].join_type == "join"
+    assert len(steps[0].body_steps) == 2
+
+
+def test_extract_steps_handles_fork_join_any() -> None:
+    body = "\n".join([
+        "fork",
+        "result <= data_in;",
+        "join_any",
+    ])
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], ForkJoinFlowStep)
+    assert steps[0].join_type == "join_any"
+
+
+def test_extract_steps_handles_delay() -> None:
+    body = "#10 result <= 8'hAA;"
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], DelayFlowStep)
+    assert steps[0].delay == "10"
+
+
+def test_extract_steps_handles_event_wait() -> None:
+    body = "\n".join([
+        "@(posedge clk)",
+        "result <= data_in;",
+    ])
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], EventWaitFlowStep)
+    assert "posedge clk" in steps[0].event
+
+
+def test_extract_steps_handles_wait_condition() -> None:
+    body = "\n".join([
+        "wait (ready == 1'b1)",
+        "accumulator <= accumulator + 1;",
+    ])
+    steps = _extract_steps(body)
+    assert len(steps) == 1
+    assert isinstance(steps[0], WaitConditionFlowStep)
+    assert "ready" in steps[0].condition
+
+
+def test_full_fixture_extracts_all_constructs() -> None:
+    import pathlib
+    fixture = pathlib.Path(__file__).parent / "fixtures" / "full.v"
+    source = SourceUnit(
+        identifier=SourceUnitId("full.v"),
+        location=str(fixture),
+        content=fixture.read_text(),
+    )
+    diagram = AntlrVerilogControlFlowExtractor().extract(source)
+    # Should find multiple procedural blocks
+    assert len(diagram.functions) >= 6
+    step_types = set()
+    for func in diagram.functions:
+        _collect_step_types(func.steps, step_types)
+    # Must have found core types
+    assert IfFlowStep in step_types
+    assert SwitchFlowStep in step_types
+    assert ForInFlowStep in step_types
+    assert WhileFlowStep in step_types
+    assert RepeatWhileFlowStep in step_types
+    assert ForeverFlowStep in step_types
+    assert DisableFlowStep in step_types
+    assert ForkJoinFlowStep in step_types
+    assert DelayFlowStep in step_types
+    assert EventWaitFlowStep in step_types
+    assert WaitConditionFlowStep in step_types
+
+
+def _collect_step_types(steps, result: set) -> None:
+    from swifta.domain.control_flow import ControlFlowStep
+    for s in steps:
+        result.add(type(s))
+        if hasattr(s, "then_steps"):
+            _collect_step_types(s.then_steps, result)
+        if hasattr(s, "else_steps"):
+            _collect_step_types(s.else_steps, result)
+        if hasattr(s, "body_steps"):
+            _collect_step_types(s.body_steps, result)
+        if hasattr(s, "cases"):
+            for c in s.cases:
+                _collect_step_types(c.steps, result)

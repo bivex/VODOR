@@ -9,13 +9,19 @@ from swifta.domain.control_flow import (
     ControlFlowDiagram,
     ControlFlowStep,
     DeferFlowStep,
+    DelayFlowStep,
+    DisableFlowStep,
     DoCatchFlowStep,
+    EventWaitFlowStep,
+    ForkJoinFlowStep,
+    ForeverFlowStep,
     ForInFlowStep,
     GuardFlowStep,
     IfFlowStep,
     RepeatWhileFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
+    WaitConditionFlowStep,
     WhileFlowStep,
 )
 from swifta.domain.ports import VerilogRenderer
@@ -95,6 +101,18 @@ class VerilogDiagramRenderer(VerilogRenderer):
             return self._render_do_catch(step, depth=depth)
         if isinstance(step, DeferFlowStep):
             return self._render_defer(step, depth=depth)
+        if isinstance(step, ForeverFlowStep):
+            return self._render_forever(step, depth=depth)
+        if isinstance(step, DisableFlowStep):
+            return self._render_disable(step, depth=depth)
+        if isinstance(step, ForkJoinFlowStep):
+            return self._render_fork_join(step, depth=depth)
+        if isinstance(step, DelayFlowStep):
+            return self._render_delay(step, depth=depth)
+        if isinstance(step, EventWaitFlowStep):
+            return self._render_event_wait(step, depth=depth)
+        if isinstance(step, WaitConditionFlowStep):
+            return self._render_wait_condition(step, depth=depth)
         raise TypeError(f"unsupported step type: {type(step)!r}")
 
     def _render_action(self, step: ActionFlowStep, *, depth: int) -> str:
@@ -221,6 +239,55 @@ class VerilogDiagramRenderer(VerilogRenderer):
         return (
             f"{indent}// defer\n"
             f"{indent}begin\n"
+            f"{body}"
+            f"{indent}end\n"
+        )
+
+    def _render_forever(self, step: ForeverFlowStep, *, depth: int) -> str:
+        indent = _INDENT * depth
+        body = self._render_sequence(step.body_steps, depth=depth + 1)
+        return (
+            f"{indent}forever begin\n"
+            f"{body}"
+            f"{indent}end\n"
+        )
+
+    def _render_disable(self, step: DisableFlowStep, *, depth: int) -> str:
+        indent = _INDENT * depth
+        return f"{indent}disable {step.target};\n"
+
+    def _render_fork_join(self, step: ForkJoinFlowStep, *, depth: int) -> str:
+        indent = _INDENT * depth
+        body = self._render_sequence(step.body_steps, depth=depth + 1)
+        return (
+            f"{indent}fork\n"
+            f"{body}"
+            f"{indent}{step.join_type}\n"
+        )
+
+    def _render_delay(self, step: DelayFlowStep, *, depth: int) -> str:
+        indent = _INDENT * depth
+        body = self._render_sequence(step.body_steps, depth=depth + 1)
+        return (
+            f"{indent}#{step.delay} begin\n"
+            f"{body}"
+            f"{indent}end\n"
+        )
+
+    def _render_event_wait(self, step: EventWaitFlowStep, *, depth: int) -> str:
+        indent = _INDENT * depth
+        body = self._render_sequence(step.body_steps, depth=depth + 1)
+        return (
+            f"{indent}@({step.event}) begin\n"
+            f"{body}"
+            f"{indent}end\n"
+        )
+
+    def _render_wait_condition(self, step: WaitConditionFlowStep, *, depth: int) -> str:
+        indent = _INDENT * depth
+        body = self._render_sequence(step.body_steps, depth=depth + 1)
+        return (
+            f"{indent}wait ({step.condition}) begin\n"
             f"{body}"
             f"{indent}end\n"
         )

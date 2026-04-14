@@ -10,7 +10,10 @@ from swifta.domain.control_flow import (
     ControlFlowDiagram,
     ControlFlowStep,
     DeferFlowStep,
+    DelayFlowStep,
     DisableFlowStep,
+    EventWaitFlowStep,
+    ForkJoinFlowStep,
     ForInFlowStep,
     ForeverFlowStep,
     FunctionControlFlow,
@@ -18,6 +21,7 @@ from swifta.domain.control_flow import (
     RepeatWhileFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
+    WaitConditionFlowStep,
     WhileFlowStep,
 )
 from swifta.domain.model import SourceUnit
@@ -28,6 +32,7 @@ from swifta.domain.ports import VerilogControlFlowExtractor
 class _BlockSlice:
     name: str
     body: str
+    sensitivity: str | None = None
 
 
 class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
@@ -39,6 +44,7 @@ class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
                 signature=f"always {block.name}",
                 container=None,
                 steps=_extract_steps(block.body),
+                sensitivity=block.sensitivity,
             )
             for block in blocks
         )
@@ -57,21 +63,47 @@ def _scan_procedural_blocks(source_text: str) -> tuple[_BlockSlice, ...]:
         match = pattern.search(source_text, index)
         if not match:
             break
-        start = match.start()
-        begin_index = source_text.find("begin", match.end())
-        if begin_index == -1:
-            index = match.end()
+        kind = match.group(1).lower()
+
+        # Capture sensitivity list for always blocks: @(...) or @*
+        sensitivity: str | None = None
+        rest = source_text[match.end():]
+        sens_match = re.match(r"\s*@\s*(\([^)]*\)|\*)", rest)
+        if sens_match:
+            sensitivity = sens_match.group(1).strip()
+            after_sens = match.end() + sens_match.end()
+        else:
+            after_sens = match.end()
+
+        begin_index = source_text.find("begin", after_sens)
+        if begin_index == -1 or begin_index > _next_statement_boundary(source_text, after_sens):
+            # Single-statement block: everything until next ';'
+            semi = source_text.find(";", after_sens)
+            if semi == -1:
+                index = after_sens
+                continue
+            body = source_text[after_sens:semi].strip()
+            if body:
+                blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body, sensitivity=sensitivity))
+                counter += 1
+            index = semi + 1
             continue
+
         end_index = _find_matching_end(source_text, begin_index)
         if end_index == -1:
-            index = match.end()
+            index = after_sens
             continue
         body = source_text[begin_index + len("begin") : end_index].strip()
-        kind = match.group(1).lower()
-        blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body))
+        blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body, sensitivity=sensitivity))
         counter += 1
         index = end_index + len("end")
     return tuple(blocks)
+
+
+def _next_statement_boundary(text: str, start: int) -> int:
+    """Return index of the first ';' after start, or len(text) if none."""
+    idx = text.find(";", start)
+    return idx if idx != -1 else len(text)
 
 
 def _find_matching_end(text: str, begin_index: int) -> int:
@@ -96,9 +128,19 @@ def _find_matching_end(text: str, begin_index: int) -> int:
 
 
 def _extract_steps(body: str) -> tuple[ControlFlowStep, ...]:
-    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    cleaned = _strip_comments(body)
+    lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
     steps, _ = _parse_steps(lines, 0, stop_prefixes=set())
     return tuple(steps)
+
+
+def _strip_comments(text: str) -> str:
+    """Remove // line comments and /* block */ comments."""
+    # Remove block comments first
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    # Remove line comments
+    text = re.sub(r"//[^\n]*", "", text)
+    return text
 
 
 def _parse_steps(
@@ -118,7 +160,7 @@ def _parse_steps(
         if "endcase" in stop_prefixes and _is_case_label_line(line):
             break
 
-        if lower == "begin":
+        if lower == "begin" or lower.startswith("begin "):
             nested, index = _parse_steps(lines, index + 1, stop_prefixes={"end"})
             steps.extend(nested)
             if index < len(lines) and lines[index].lower().startswith("end"):
@@ -155,8 +197,28 @@ def _parse_steps(
             steps.append(step)
             continue
 
-        if lower.startswith("case "):
+        if lower.startswith(("case ", "casez ", "casex ")):
             step, index = _parse_case(lines, index)
+            steps.append(step)
+            continue
+
+        if lower.startswith("fork"):
+            step, index = _parse_fork(lines, index)
+            steps.append(step)
+            continue
+
+        if lower.startswith("#"):
+            step, index = _parse_delay(lines, index)
+            steps.append(step)
+            continue
+
+        if lower.startswith("@"):
+            step, index = _parse_event_wait(lines, index)
+            steps.append(step)
+            continue
+
+        if lower.startswith("wait "):
+            step, index = _parse_wait_condition(lines, index)
             steps.append(step)
             continue
 
@@ -410,12 +472,107 @@ def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
     return SwitchFlowStep(expression=expression, cases=tuple(cases)), index
 
 
+def _parse_fork(lines: list[str], index: int) -> tuple[ForkJoinFlowStep, int]:
+    line = lines[index]
+    lower_line = line.lower()
+    has_begin_on_same_line = " begin" in lower_line
+
+    index += 1
+
+    # Always parse until join/join_any/join_none
+    body_steps, index = _parse_steps(lines, index, stop_prefixes={"join", "join_any", "join_none"})
+    # Determine join type from the line we stopped at
+    join_type = "join"
+    if index < len(lines):
+        stop_line = lines[index].lower().strip()
+        if stop_line.startswith("join_any"):
+            join_type = "join_any"
+        elif stop_line.startswith("join_none"):
+            join_type = "join_none"
+        index += 1
+
+    return ForkJoinFlowStep(join_type=join_type, body_steps=tuple(body_steps)), index
+
+
+def _parse_delay(lines: list[str], index: int) -> tuple[DelayFlowStep, int]:
+    line = lines[index]
+    lower_line = line.lower()
+    has_begin_on_same_line = " begin" in lower_line
+
+    # Extract delay value: #10, #(5:3:2), etc.
+    delay_match = re.match(r"#\s*(\([^)]+\)|\w+)", line)
+    delay = delay_match.group(1) if delay_match else line[1:].strip().split()[0]
+
+    if has_begin_on_same_line:
+        index += 1
+        body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
+        if index < len(lines) and lines[index].lower().startswith("end"):
+            index += 1
+    else:
+        # Single statement: #10 x = 1;
+        rest = line[1:].strip()
+        # Remove delay prefix from rest
+        if delay_match:
+            rest = line[delay_match.end():].strip()
+        rest = rest.removesuffix(";").strip()
+        if rest:
+            body_steps = [ActionFlowStep(rest)]
+        else:
+            body_steps = []
+        index += 1
+
+    return DelayFlowStep(delay=delay, body_steps=tuple(body_steps)), index
+
+
+def _parse_event_wait(lines: list[str], index: int) -> tuple[EventWaitFlowStep, int]:
+    line = lines[index]
+    lower_line = line.lower()
+    has_begin_on_same_line = " begin" in lower_line
+
+    # Extract event: @(posedge clk), @(a or b), etc.
+    event = _extract_parenthesized(line[1:].strip()) or "event"
+
+    index += 1
+
+    if has_begin_on_same_line:
+        body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
+        if index < len(lines) and lines[index].lower().startswith("end"):
+            index += 1
+    else:
+        body_steps, index = _parse_branch_body(lines, index)
+
+    return EventWaitFlowStep(event=event, body_steps=tuple(body_steps)), index
+
+
+def _parse_wait_condition(lines: list[str], index: int) -> tuple[WaitConditionFlowStep, int]:
+    line = lines[index]
+    lower_line = line.lower()
+    has_begin_on_same_line = " begin" in lower_line
+
+    # Extract condition: wait (expr)
+    wait_part = line[4:].strip()
+    if has_begin_on_same_line:
+        wait_part = wait_part.replace(" begin", "").strip()
+    condition = _extract_parenthesized(wait_part) or "condition"
+
+    index += 1
+
+    if has_begin_on_same_line:
+        body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
+        if index < len(lines) and lines[index].lower().startswith("end"):
+            index += 1
+    else:
+        body_steps, index = _parse_branch_body(lines, index)
+
+    return WaitConditionFlowStep(condition=condition, body_steps=tuple(body_steps)), index
+
+
 def _parse_branch_body(lines: list[str], index: int) -> tuple[list[ControlFlowStep], int]:
     if index >= len(lines):
         return [], index
 
     line = lines[index].lower()
-    if line == "begin":
+    if line == "begin" or line.startswith("begin "):
         body, index = _parse_steps(lines, index + 1, stop_prefixes={"end"})
         if index < len(lines) and lines[index].lower().startswith("end"):
             index += 1
@@ -444,8 +601,9 @@ def _single_line_step(line: str) -> ControlFlowStep:
     if lower.startswith("disable "):
         target = line[7:].strip().removesuffix(";")
         return DisableFlowStep(target=target)
-    if lower.startswith("case "):
-        expr = _extract_parenthesized(line[4:].strip()) or "expression"
+    if lower.startswith(("case ", "casez ", "casex ")):
+        prefix_len = 5 if lower.startswith("casez ") or lower.startswith("casex ") else 4
+        expr = _extract_parenthesized(line[prefix_len:].strip()) or "expression"
         return SwitchFlowStep(expression=expr, cases=())
     return ActionFlowStep(_clean_line(line))
 

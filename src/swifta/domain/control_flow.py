@@ -86,11 +86,36 @@ class DisableFlowStep(ControlFlowStep):
 
 
 @dataclass(frozen=True, slots=True)
+class ForkJoinFlowStep(ControlFlowStep):
+    join_type: str
+    body_steps: tuple[ControlFlowStep, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DelayFlowStep(ControlFlowStep):
+    delay: str
+    body_steps: tuple[ControlFlowStep, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EventWaitFlowStep(ControlFlowStep):
+    event: str
+    body_steps: tuple[ControlFlowStep, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class WaitConditionFlowStep(ControlFlowStep):
+    condition: str
+    body_steps: tuple[ControlFlowStep, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class FunctionControlFlow:
     name: str
     signature: str
     container: str | None
     steps: tuple[ControlFlowStep, ...]
+    sensitivity: str | None = None
 
     @property
     def qualified_name(self) -> str:
