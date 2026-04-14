@@ -55,6 +55,7 @@ class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
 
 
 def _scan_procedural_blocks(source_text: str) -> tuple[_BlockSlice, ...]:
+    source_text = _strip_comments(source_text)
     pattern = re.compile(r"\b(always|initial)\b", re.IGNORECASE)
     blocks: list[_BlockSlice] = []
     index = 0
@@ -503,23 +504,21 @@ def _parse_delay(lines: list[str], index: int) -> tuple[DelayFlowStep, int]:
     delay_match = re.match(r"#\s*(\([^)]+\)|\w+)", line)
     delay = delay_match.group(1) if delay_match else line[1:].strip().split()[0]
 
+    # Check for same-line statement after delay
+    after_delay = ""
+    if delay_match:
+        after_delay = line[delay_match.end():].strip().removesuffix(";").strip()
+
+    index += 1
+
     if has_begin_on_same_line:
-        index += 1
         body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
         if index < len(lines) and lines[index].lower().startswith("end"):
             index += 1
+    elif after_delay:
+        body_steps = [ActionFlowStep(after_delay)]
     else:
-        # Single statement: #10 x = 1;
-        rest = line[1:].strip()
-        # Remove delay prefix from rest
-        if delay_match:
-            rest = line[delay_match.end():].strip()
-        rest = rest.removesuffix(";").strip()
-        if rest:
-            body_steps = [ActionFlowStep(rest)]
-        else:
-            body_steps = []
-        index += 1
+        body_steps, index = _parse_branch_body(lines, index)
 
     return DelayFlowStep(delay=delay, body_steps=tuple(body_steps)), index
 
@@ -530,7 +529,11 @@ def _parse_event_wait(lines: list[str], index: int) -> tuple[EventWaitFlowStep, 
     has_begin_on_same_line = " begin" in lower_line
 
     # Extract event: @(posedge clk), @(a or b), etc.
-    event = _extract_parenthesized(line[1:].strip()) or "event"
+    rest = line[1:].strip()
+    event = _extract_parenthesized(rest) or "event"
+
+    # Check for same-line statement after @(event)
+    after_event = _extract_after_parenthesized(rest)
 
     index += 1
 
@@ -538,6 +541,8 @@ def _parse_event_wait(lines: list[str], index: int) -> tuple[EventWaitFlowStep, 
         body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
         if index < len(lines) and lines[index].lower().startswith("end"):
             index += 1
+    elif after_event:
+        body_steps = [ActionFlowStep(_clean_line(after_event))]
     else:
         body_steps, index = _parse_branch_body(lines, index)
 
@@ -555,12 +560,17 @@ def _parse_wait_condition(lines: list[str], index: int) -> tuple[WaitConditionFl
         wait_part = wait_part.replace(" begin", "").strip()
     condition = _extract_parenthesized(wait_part) or "condition"
 
+    # Check for same-line statement after wait (condition)
+    after_condition = _extract_after_parenthesized(wait_part)
+
     index += 1
 
     if has_begin_on_same_line:
         body_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
         if index < len(lines) and lines[index].lower().startswith("end"):
             index += 1
+    elif after_condition:
+        body_steps = [ActionFlowStep(_clean_line(after_condition))]
     else:
         body_steps, index = _parse_branch_body(lines, index)
 
@@ -618,6 +628,18 @@ def _extract_parenthesized(text: str) -> str:
     if open_index == -1 or close_index == -1 or close_index <= open_index:
         return text.strip().removesuffix(";")
     return text[open_index + 1 : close_index].strip()
+
+
+def _extract_after_parenthesized(text: str) -> str:
+    """Return text after the closing ')' of the first parenthesized group."""
+    open_index = text.find("(")
+    if open_index == -1:
+        return ""
+    close_index = text.find(")", open_index)
+    if close_index == -1:
+        return ""
+    after = text[close_index + 1:].strip().removesuffix(";").strip()
+    return after
 
 
 def _is_case_label_line(line: str) -> bool:
