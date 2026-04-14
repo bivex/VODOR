@@ -1,127 +1,60 @@
-# Swifta
+# VODOR
 
-Swifta is a simple, scalable monolith for parsing Verilog source code through ANTLR while keeping the architecture clean enough for future semantic analysis, indexing, and export pipelines.
+Verilog-Oriented Diagrammatic Output & Rendering. Parses Verilog source code and produces Nassi-Shneiderman control flow diagrams.
 
-The project starts from the domain, not from the framework:
+## What it does
 
-* business goal: convert Verilog source into a stable structural model for downstream tooling
-* architectural style: DDD-inspired layered monolith with hexagonal boundaries
-* parser engine: ANTLR4 with the public Verilog grammar from `antlr/grammars-v4`
-* current delivery channel: CLI that parses a file or a directory and returns versioned JSON
-
-## What the system does
-
-Today the system supports:
-
-* **Parsing Verilog code**
-  * parsing one Verilog file
-  * parsing a directory of Verilog files
-  * extracting a lightweight structural model: modules and procedural blocks
-  * reporting syntax diagnostics as part of the contract
-
-* **Control flow extraction**
-  * extracting procedural flow from `always` and `initial` blocks
-  * mapping basic constructs into diagram steps (`if`, `while`, `for`, `case`, action statements)
-
-* **Nassi-Shneiderman diagrams**
-  * building a Nassi-Shneiderman HTML diagram for one Verilog file
-  * building diagram bundles for entire directories with index page
-  * HTML output suitable for local viewing and sharing
-
-* **Architecture**
-  * keeping parser infrastructure behind ports so the application layer stays independent from ANTLR, filesystem, and CLI details
+* **Parsing** — Parses Verilog files and directories via ANTLR4, extracts a structural model of modules and procedural blocks.
+* **Control flow extraction** — Extracts procedural flow from `always` and `initial` blocks, mapping constructs into structured steps: `if`/`else`, `for`, `while`, `case`, `forever`, `disable`, and action statements.
+* **Nassi-Shneiderman diagrams** — Renders control flow as standalone dark-themed HTML with classic NS diagram layout (SVG triangle caps for if/else, grid columns for switch/case, nested loops). Supports single-file and batch directory output.
+* **Verilog export** — Re-exports behavioral Verilog from the extracted control flow model.
 
 ## Architecture
 
-The codebase is split into four explicit layers:
+DDD-inspired layered monolith with hexagonal boundaries:
 
-* `domain`: domain model, invariants, ports, and domain events
-* `application`: use cases and DTOs
-* `infrastructure`: ANTLR adapter, filesystem adapters, rendering, event publishing
-* `presentation`: CLI contract
-
-See the full design docs in `docs/`.
+* `domain` — model, invariants, ports
+* `application` — use cases, DTOs
+* `infrastructure` — ANTLR adapter, filesystem, rendering, regex-based control flow extractor
+* `presentation` — CLI
 
 ## Quick Start
 
-1. Install dependencies:
-
 ```bash
+# Install
 uv sync --extra dev
-```
 
-2. Generate the Verilog parser from grammar files:
-
-```bash
+# Generate parser from grammar
 uv run python scripts/generate_verilog_parser.py
-```
 
-3. Parse a single file:
-
-```bash
+# Parse a file
 uv run swifta parse-file path/to/module.v
+
+# Generate Nassi-Shneiderman HTML
+uv run swifta nassi-file path/to/module.v
+uv run swifta nassi-file path/to/module.v --out output.html
+
+# Batch diagrams for a directory
+uv run swifta nassi-dir path/to/project --out output/
+
+# Export behavioral Verilog
+uv run swifta verilog-file path/to/module.v
+uv run swifta verilog-dir path/to/project --out output/
 ```
 
-4. Parse a directory:
+## Supported Control Flow
 
-```bash
-uv run swifta parse-dir path/to/project
-```
-
-5. Build a Nassi-Shneiderman diagram for a Verilog file:
-
-```bash
-uv run swifta nassi-file path/to/module.v --out output/module.nassi.html
-```
-
-6. Build Nassi-Shneiderman diagrams for an entire directory:
-
-```bash
-uv run swifta nassi-dir path/to/project --out output/nassi-bundle
-```
-
-## Action/Step Support Matrix
-
-Below is the current state against the control-flow step dictionary (`ControlFlowStep` model in `src/swifta/domain/control_flow.py`).
-
-| Step / Action | Status now | Notes |
+| Construct | Step type | Notes |
 | --- | --- | --- |
-| `ActionFlowStep` | Supported | Any non-recognized procedural line becomes action text. |
-| `IfFlowStep` | Supported | `if (...)` with nested `then`/`else` bodies fully parsed structurally. |
-| `WhileFlowStep` | Supported | `while (...)` with nested body fully parsed. |
-| `ForInFlowStep` | Supported | Verilog `for (...)` with nested body fully parsed. |
-| `SwitchFlowStep` | Partially supported | `case (...)` recognized and case items parsed into `SwitchCaseFlow`, but nested structures within cases may need refinement. |
-| `GuardFlowStep` | Not implemented | Swift-only concept; no direct Verilog mapping yet. |
-| `RepeatWhileFlowStep` | Supported | Equivalent `repeat (...)` with nested body fully parsed. |
-| `ForeverFlowStep` | Supported | `forever` loops with nested body fully parsed. |
-| `DisableFlowStep` | Supported | `disable` statements for breaking out of named blocks or loops. |
-| `DoCatchFlowStep` | Not implemented | Swift-only concept; keep unsupported for Verilog flow. |
-| `DeferFlowStep` | Not implemented | Swift-only concept; keep unsupported for Verilog flow. |
+| Assignments | `ActionFlowStep` | Blocking (`=`) and nonblocking (`<=`) |
+| `if` / `else` | `IfFlowStep` | Nested then/else with `else if` chains |
+| `for` | `ForInFlowStep` | Full header + body |
+| `while` | `WhileFlowStep` | Condition + body |
+| `repeat` | `RepeatWhileFlowStep` | Count + body |
+| `forever` | `ForeverFlowStep` | Infinite loop body |
+| `case` / `casez` / `casex` | `SwitchFlowStep` | Multi-column case grid with nested bodies |
+| `disable` | `DisableFlowStep` | Named block/loop break |
 
-### What should be added next
+## Constraints
 
-1. Refine `SwitchFlowStep` case parsing to handle nested control flow within case bodies.
-2. Add support for more complex Verilog constructs (e.g., disable, wait, event triggers).
-3. Consider language-specific refinements or splitting Swift-only step types into separate schemas.
-4. Add support for Verilog-specific control flow patterns not covered by current steps.
-
-## Constraints and honesty
-
-The current ANTLR grammar is sourced from `antlr/grammars-v4/verilog/verilog`. Like any community grammar, it can lag behind vendor-specific dialects and unusual macro-heavy codebases. Swifta surfaces grammar version and diagnostics in runtime reports so downstream consumers can make informed integration decisions.
-
-## Migration Note
-
-The project is migrated to Verilog input (`.v`) across parser, repository, CLI, and tests.  
-Some symbol names still include legacy "Swift" aliases for temporary backward compatibility in imports only.
-
-## Next Steps
-
-Useful future extensions:
-
-* richer Verilog/SystemVerilog-aware control flow extraction
-* symbol graph export
-* semantic passes on top of the structural model
-* integration adapters for external analysis tools
-* incremental parsing and caching
-* interactive HTML diagrams with collapsible nodes
-* export to other diagram formats (SVG, PNG, Mermaid)
+The ANTLR grammar is sourced from `antlr/grammars-v4/verilog`. Community grammars may lag behind vendor dialects and macro-heavy codebases. Grammar version and diagnostics are included in parse reports.
