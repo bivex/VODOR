@@ -8,7 +8,12 @@ from swifta.domain.control_flow import (
     ControlFlowDiagram,
     ControlFlowStep,
     DeferFlowStep,
+    DelayFlowStep,
+    DisableFlowStep,
     DoCatchFlowStep,
+    EventWaitFlowStep,
+    ForeverFlowStep,
+    ForkJoinFlowStep,
     ForInFlowStep,
     FunctionControlFlow,
     GuardFlowStep,
@@ -16,6 +21,7 @@ from swifta.domain.control_flow import (
     RepeatWhileFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
+    WaitConditionFlowStep,
     WhileFlowStep,
 )
 from swifta.infrastructure.rendering.verilog_renderer import (
@@ -297,3 +303,87 @@ class TestVerilogRendererEmptySequence:
     def test_empty_steps(self) -> None:
         result = _render_steps()
         assert "// (empty)" in result
+
+
+class TestVerilogRendererForever:
+    def test_forever_begin_end(self) -> None:
+        result = _render_steps(ForeverFlowStep(body_steps=(ActionFlowStep("x <= x + 1"),)))
+        assert "forever begin" in result
+        assert "x <= x + 1;" in result
+        assert result.count("end\n") >= 1
+
+    def test_forever_nested_disable(self) -> None:
+        result = _render_steps(
+            ForeverFlowStep(
+                body_steps=(
+                    ActionFlowStep("x <= x + 1"),
+                    DisableFlowStep(target="loop"),
+                ),
+            )
+        )
+        assert "forever begin" in result
+        assert "disable loop;" in result
+
+
+class TestVerilogRendererDisable:
+    def test_disable_emits_target(self) -> None:
+        result = _render_steps(DisableFlowStep(target="processing_block"))
+        assert "disable processing_block;" in result
+
+
+class TestVerilogRendererForkJoin:
+    def test_fork_join(self) -> None:
+        result = _render_steps(
+            ForkJoinFlowStep(
+                join_type="join",
+                body_steps=(ActionFlowStep("a <= 1"), ActionFlowStep("b <= 2")),
+            )
+        )
+        assert "fork\n" in result
+        assert "a <= 1;" in result
+        assert "b <= 2;" in result
+        assert "join\n" in result
+
+    def test_fork_join_any(self) -> None:
+        result = _render_steps(ForkJoinFlowStep(join_type="join_any", body_steps=()))
+        assert "fork\n" in result
+        assert "join_any\n" in result
+
+    def test_fork_join_none(self) -> None:
+        result = _render_steps(ForkJoinFlowStep(join_type="join_none", body_steps=()))
+        assert "join_none\n" in result
+
+
+class TestVerilogRendererDelay:
+    def test_delay_with_body(self) -> None:
+        result = _render_steps(DelayFlowStep(delay="10", body_steps=(ActionFlowStep("x <= 1"),)))
+        assert "#10 begin" in result
+        assert "x <= 1;" in result
+
+
+class TestVerilogRendererEventWait:
+    def test_event_wait_with_body(self) -> None:
+        result = _render_steps(EventWaitFlowStep(event="posedge clk", body_steps=(ActionFlowStep("x <= data"),)))
+        assert "@(posedge clk) begin" in result
+        assert "x <= data;" in result
+
+
+class TestVerilogRendererWaitCondition:
+    def test_wait_with_body(self) -> None:
+        result = _render_steps(WaitConditionFlowStep(condition="ready == 1", body_steps=(ActionFlowStep("x <= 1"),)))
+        assert "wait (ready == 1) begin" in result
+        assert "x <= 1;" in result
+
+
+class TestVerilogRendererUnsupported:
+    def test_unknown_step_type_raises(self) -> None:
+        from dataclasses import dataclass
+        from swifta.domain.control_flow import ControlFlowStep
+
+        @dataclass(frozen=True)
+        class FakeStep(ControlFlowStep):
+            pass
+
+        import pytest
+        with pytest.raises(TypeError, match="unsupported step type"):
+            _render_steps(FakeStep())
