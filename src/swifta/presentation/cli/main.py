@@ -350,18 +350,63 @@ def _render_directory_index(
     root_path: str,
     written_diagrams: tuple[_WrittenNassiDiagram, ...],
 ) -> str:
-    rows = "".join(
-        (
-            "<tr>"
-            f'<td><a href="{escape(diagram.relative_output_path)}">{escape(diagram.relative_source_path)}</a></td>'
-            f"<td>{diagram.function_count}</td>"
-            f"<td>{escape(', '.join(diagram.function_names) if diagram.function_names else 'No functions found')}</td>"
-            "</tr>"
+    from collections import OrderedDict
+
+    # Group by parent directory
+    groups: OrderedDict[str, list[_WrittenNassiDiagram]] = OrderedDict()
+    for d in written_diagrams:
+        parent = str(Path(d.relative_source_path).parent)
+        groups.setdefault(parent, []).append(d)
+
+    # Separate groups with diagrams vs empty-only
+    active_groups: OrderedDict[str, list[_WrittenNassiDiagram]] = OrderedDict()
+    empty_groups: OrderedDict[str, list[_WrittenNassiDiagram]] = OrderedDict()
+    for parent, diagrams in groups.items():
+        if any(d.function_count > 0 for d in diagrams):
+            active_groups[parent] = diagrams
+        else:
+            empty_groups[parent] = diagrams
+
+    def _render_group(label: str, diagrams: list[_WrittenNassiDiagram], collapsed: bool = False) -> str:
+        files_html = ""
+        for d in diagrams:
+            if d.function_count > 0:
+                badge = f'<span class="badge badge-ok">{d.function_count}</span>'
+            else:
+                badge = '<span class="badge badge-empty">0</span>'
+            names = ", ".join(d.function_names) if d.function_names else '<span class="muted">structural</span>'
+            files_html += (
+                f'<div class="file-row {"file-empty" if d.function_count == 0 else ""}">'
+                f'<a href="{escape(d.relative_output_path)}">{escape(Path(d.relative_source_path).name)}</a>'
+                f'{badge}'
+                f'<span class="names">{escape(names) if d.function_names else names}</span>'
+                f'</div>'
+            )
+        state = " collapsed" if collapsed else ""
+        return (
+            f'<div class="group">'
+            f'<div class="group-header{state}" onclick="toggleGroup(this)">'
+            f'<span class="arrow">&#9660;</span> {escape(label)}'
+            f'<span class="group-count">{len(diagrams)}</span>'
+            f'</div>'
+            f'<div class="group-body{" hidden" if collapsed else ""}">{files_html}</div>'
+            f'</div>'
         )
-        for diagram in written_diagrams
+
+    active_html = "".join(
+        _render_group(parent or ".", diagrams)
+        for parent, diagrams in active_groups.items()
     )
-    if not rows:
-        rows = '<tr><td colspan="3">No diagrams were generated.</td></tr>'
+    empty_html = ""
+    if empty_groups:
+        empty_html = "".join(
+            _render_group(parent or ".", diagrams, collapsed=True)
+            for parent, diagrams in empty_groups.items()
+        )
+
+    total_files = len(written_diagrams)
+    total_functions = sum(d.function_count for d in written_diagrams)
+    active_files = sum(1 for d in written_diagrams if d.function_count > 0)
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -390,7 +435,7 @@ def _render_directory_index(
         background: linear-gradient(180deg, #e3e8ee 0%, var(--page) 100%);
       }}
       .window {{
-        max-width: 1120px;
+        max-width: 960px;
         margin: 0 auto;
         border: 2px solid var(--line);
         background: var(--panel);
@@ -402,6 +447,14 @@ def _render_directory_index(
         font-size: 18px;
         font-weight: 700;
         background: linear-gradient(180deg, #3394ff 0%, var(--blue) 48%, var(--blue-dark) 100%);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }}
+      .titlebar .stats {{
+        font-size: 12px;
+        font-weight: 400;
+        opacity: 0.85;
       }}
       .body {{
         padding: 16px;
@@ -413,82 +466,125 @@ def _render_directory_index(
         font-size: 12px;
         overflow-wrap: anywhere;
       }}
-      table {{
-        width: 100%;
-        border-collapse: collapse;
+      .group {{
+        margin-bottom: 6px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        overflow: hidden;
         background: var(--panel-2);
       }}
-      th, td {{
-        padding: 10px 12px;
-        border: 1px solid var(--line);
-        text-align: left;
-        vertical-align: top;
+      .group-header {{
+        padding: 8px 12px;
+        background: linear-gradient(180deg, #2a3a52 0%, #1e2d42 100%);
+        color: #d0d8e0;
+        font-size: 13px;
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        user-select: none;
       }}
-      th {{
-        color: #ffffff;
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        background: linear-gradient(180deg, var(--blue) 0%, var(--blue-dark) 100%);
+      .group-header:hover {{
+        background: linear-gradient(180deg, #344a66 0%, #263d56 100%);
       }}
-      td:nth-child(2) {{
-        width: 110px;
+      .group-header .arrow {{
+        font-size: 10px;
+        transition: transform 0.15s;
+      }}
+      .group-header.collapsed .arrow {{
+        transform: rotate(-90deg);
+      }}
+      .group-count {{
+        margin-left: auto;
+        background: rgba(255,255,255,0.12);
+        padding: 1px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+      }}
+      .group-body {{
+        padding: 0;
+      }}
+      .group-body.hidden {{
+        display: none;
+      }}
+      .file-row {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 7px 12px 7px 28px;
+        border-top: 1px solid #d8d0c0;
+      }}
+      .file-row:hover {{
+        background: #f0ead8;
+      }}
+      .file-empty {{
+        opacity: 0.5;
+      }}
+      .file-empty a {{
+        font-weight: 400;
+      }}
+      .badge {{
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 700;
+        min-width: 24px;
         text-align: center;
-        white-space: nowrap;
+      }}
+      .badge-ok {{
+        background: #1a7a3a;
+        color: #fff;
+      }}
+      .badge-empty {{
+        background: #bbb;
+        color: #fff;
+      }}
+      .names {{
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 12px;
+        font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+      }}
+      .muted {{
+        font-style: italic;
       }}
       a {{
         color: #0f58ad;
         text-decoration: none;
         font-weight: 700;
+        font-size: 13px;
       }}
       a:hover {{
         text-decoration: underline;
       }}
-      @media (max-width: 800px) {{
-        body {{ padding: 12px; }}
-        .body {{ padding: 10px; }}
-        table, thead, tbody, tr, th, td {{
-          display: block;
-        }}
-        thead {{
-          display: none;
-        }}
-        tr {{
-          margin-bottom: 12px;
-          border: 1px solid var(--line);
-          background: var(--panel-2);
-        }}
-        td {{
-          border: 0;
-          border-top: 1px solid var(--line);
-        }}
-        td:first-child {{
-          border-top: 0;
-        }}
-        td:nth-child(2) {{
-          width: auto;
-          text-align: left;
-        }}
+      .sep {{
+        margin: 10px 0 6px;
+        padding: 6px 12px;
+        color: var(--muted);
+        font-size: 12px;
+        font-style: italic;
+        border-bottom: 1px dashed #c8c0b0;
       }}
     </style>
+    <script>
+      function toggleGroup(el) {{
+        el.classList.toggle('collapsed');
+        el.nextElementSibling.classList.toggle('hidden');
+      }}
+    </script>
   </head>
   <body>
     <div class="window">
-      <div class="titlebar">Swifta NSD Index</div>
+      <div class="titlebar">
+        <span>Swifta NSD Index</span>
+        <span class="stats">{active_files} diagrams / {total_files} files / {total_functions} functions</span>
+      </div>
       <div class="body">
         <p class="meta">{escape(root_path)}</p>
-        <table>
-          <thead>
-            <tr>
-              <th>Source</th>
-              <th>Functions</th>
-              <th>Names</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows}
-          </tbody>
-        </table>
+        {active_html}
+        {"<div class='sep'>Structural only (no procedural blocks)</div>" + empty_html if empty_html else ""}
       </div>
     </div>
   </body>
