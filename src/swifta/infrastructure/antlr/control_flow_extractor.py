@@ -391,6 +391,15 @@ def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
                 next_line = lines[index]
                 if next_line.lower().startswith("endcase") or _is_case_label_line(next_line):
                     break
+                if next_line.lower() == "begin":
+                    nested, index = _parse_steps(lines, index + 1, stop_prefixes={"end"})
+                    case_steps.extend(nested)
+                    if index < len(lines) and lines[index].lower().startswith("end"):
+                        index += 1
+                    continue
+                if next_line.lower().startswith("end"):
+                    index += 1
+                    continue
                 parsed, index = _parse_steps(lines, index, stop_prefixes={"endcase"})
                 case_steps.extend(parsed)
             cases.append(SwitchCaseFlow(label=label, steps=tuple(case_steps)))
@@ -455,10 +464,12 @@ def _extract_parenthesized(text: str) -> str:
 
 def _is_case_label_line(line: str) -> bool:
     stripped = line.strip()
+    if stripped.startswith("//"):
+        return False
     if stripped.lower().startswith("default:"):
         return True
     return ":" in stripped and not stripped.lower().startswith(
-        ("if ", "for ", "while ", "repeat ", "case ")
+        ("if ", "for ", "while ", "repeat ", "case ", "//")
     )
 
 

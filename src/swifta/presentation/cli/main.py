@@ -24,7 +24,7 @@ from swifta.application.verilog_export import (
     VerilogExportService,
 )
 from swifta.domain.errors import SwiftaError
-from swifta.infrastructure.antlr.antlr_control_flow_extractor import (
+from swifta.infrastructure.antlr.control_flow_extractor import (
     AntlrVerilogControlFlowExtractor,
 )
 from swifta.infrastructure.antlr.parser_adapter import AntlrVerilogSyntaxParser

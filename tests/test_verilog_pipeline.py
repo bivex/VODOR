@@ -14,7 +14,7 @@ from swifta.domain.control_flow import (
     WhileFlowStep,
 )
 from swifta.domain.model import SourceUnit, SourceUnitId, StructuralElementKind
-from swifta.infrastructure.antlr.antlr_control_flow_extractor import (
+from swifta.infrastructure.antlr.control_flow_extractor import (
     AntlrVerilogControlFlowExtractor,
 )
 from swifta.infrastructure.antlr.control_flow_extractor import (

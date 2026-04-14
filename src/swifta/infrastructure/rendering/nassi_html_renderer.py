@@ -11,7 +11,9 @@ from swifta.domain.control_flow import (
     ControlFlowDiagram,
     ControlFlowStep,
     DeferFlowStep,
+    DisableFlowStep,
     DoCatchFlowStep,
+    ForeverFlowStep,
     ForInFlowStep,
     GuardFlowStep,
     IfFlowStep,
@@ -643,6 +645,16 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
             )
         if isinstance(step, DeferFlowStep):
             return self._render_single_body("Defer", step.body_steps, depth=depth, css_class="ns-defer")
+        if isinstance(step, ForeverFlowStep):
+            return self._render_single_body("Forever", step.body_steps, depth=depth, css_class="ns-loop")
+        if isinstance(step, DisableFlowStep):
+            return (
+                '<div class="ns-node ns-action">'
+                f'<div class="ns-label" aria-label="Action disable {escape(step.target)}">'
+                f'<code class="action-text">disable {escape(step.target)}</code>'
+                "</div>"
+                "</div>"
+            )
         raise TypeError(f"unsupported step type: {type(step)!r}")
 
     def _render_case(self, case: SwitchCaseFlow) -> str:
