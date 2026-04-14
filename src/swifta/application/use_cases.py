@@ -28,14 +28,14 @@ from swifta.domain.ports import (
     DomainEventPublisher,
     ParsingJobRepository,
     SourceRepository,
-    SwiftSyntaxParser,
+    VerilogSyntaxParser,
 )
 
 
 @dataclass(slots=True)
 class ParsingJobService:
     source_repository: SourceRepository
-    parser: SwiftSyntaxParser
+    parser: VerilogSyntaxParser
     event_publisher: DomainEventPublisher
     clock: Clock
     job_repository: ParsingJobRepository
@@ -45,7 +45,7 @@ class ParsingJobService:
         return self._run_job((source_unit,))
 
     def parse_directory(self, command: ParseDirectoryCommand) -> ParsingJobReportDTO:
-        source_units = tuple(self.source_repository.list_swift_sources(command.root_path))
+        source_units = tuple(self.source_repository.list_verilog_sources(command.root_path))
         return self._run_job(source_units)
 
     def _run_job(self, source_units: tuple[SourceUnit, ...]) -> ParsingJobReportDTO:

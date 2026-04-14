@@ -17,11 +17,18 @@ from swifta.application.control_flow import (
 )
 from swifta.application.dto import ParseDirectoryCommand, ParseFileCommand, ParsingJobReportDTO
 from swifta.application.use_cases import ParsingJobService
+from swifta.application.verilog_export import (
+    ExportVerilogDirectoryCommand,
+    ExportVerilogFileCommand,
+    VerilogBundleDTO,
+    VerilogExportService,
+)
 from swifta.domain.errors import SwiftaError
-from swifta.infrastructure.antlr.control_flow_extractor import AntlrSwiftControlFlowExtractor
-from swifta.infrastructure.antlr.parser_adapter import AntlrSwiftSyntaxParser
+from swifta.infrastructure.antlr.control_flow_extractor import AntlrVerilogControlFlowExtractor
+from swifta.infrastructure.antlr.parser_adapter import AntlrVerilogSyntaxParser
 from swifta.infrastructure.filesystem.source_repository import FileSystemSourceRepository
 from swifta.infrastructure.rendering.nassi_html_renderer import HtmlNassiDiagramRenderer
+from swifta.infrastructure.rendering.verilog_renderer import VerilogDiagramRenderer
 from swifta.infrastructure.system import (
     InMemoryParsingJobRepository,
     StructuredLoggingEventPublisher,
@@ -80,6 +87,45 @@ def main(argv: list[str] | None = None) -> int:
             ]
             print(json.dumps(payload, indent=2))
             return 0
+        elif args.command == "verilog-file":
+            document = _build_verilog_service().export_file(
+                ExportVerilogFileCommand(path=args.path)
+            )
+            output_path = _resolve_verilog_output_path(args.path, args.out)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(document.verilog, encoding="utf-8")
+
+            payload = document.to_dict()
+            payload["output_path"] = str(output_path)
+            print(json.dumps(payload, indent=2))
+            return 0
+        elif args.command == "verilog-dir":
+            bundle = _build_verilog_service().export_directory(
+                ExportVerilogDirectoryCommand(root_path=args.path)
+            )
+            output_dir = _resolve_verilog_output_directory(args.path, args.out)
+            written_docs = _write_directory_verilog(bundle, output_dir)
+            index_path = output_dir / "index.txt"
+            index_path.write_text(
+                _render_verilog_index(bundle.root_path, written_docs),
+                encoding="utf-8",
+            )
+
+            payload = bundle.to_dict()
+            payload["output_dir"] = str(output_dir)
+            payload["index_path"] = str(index_path)
+            payload["documents"] = [
+                {
+                    "source_location": doc.source_location,
+                    "function_count": doc.function_count,
+                    "function_names": list(doc.function_names),
+                    "output_path": str(doc.output_path),
+                    "relative_output_path": doc.relative_output_path,
+                }
+                for doc in written_docs
+            ]
+            print(json.dumps(payload, indent=2))
+            return 0
         else:
             parser.error(f"unsupported command: {args.command}")
     except SwiftaError as error:
@@ -91,21 +137,21 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Parse Swift source code with ANTLR.")
+    parser = argparse.ArgumentParser(description="Parse Verilog source code with ANTLR.")
     parser.add_argument("--verbose", action="store_true", help="Enable lifecycle logging.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    parse_file = subparsers.add_parser("parse-file", help="Parse one Swift file.")
-    parse_file.add_argument("path", help="Path to a .swift file.")
+    parse_file = subparsers.add_parser("parse-file", help="Parse one Verilog file.")
+    parse_file.add_argument("path", help="Path to a .v file.")
 
-    parse_dir = subparsers.add_parser("parse-dir", help="Parse all Swift files in a directory.")
+    parse_dir = subparsers.add_parser("parse-dir", help="Parse all Verilog files in a directory.")
     parse_dir.add_argument("path", help="Path to a directory.")
 
     nassi_file = subparsers.add_parser(
         "nassi-file",
-        help="Build a Nassi-Shneiderman HTML diagram for one Swift file.",
+        help="Build a Nassi-Shneiderman HTML diagram for one Verilog file.",
     )
-    nassi_file.add_argument("path", help="Path to a .swift file.")
+    nassi_file.add_argument("path", help="Path to a .v file.")
     nassi_file.add_argument(
         "--out",
         help="Output HTML path. Defaults to <input>.nassi.html.",
@@ -113,20 +159,41 @@ def _build_argument_parser() -> argparse.ArgumentParser:
 
     nassi_dir = subparsers.add_parser(
         "nassi-dir",
-        help="Build Nassi-Shneiderman HTML diagrams for all Swift files in a directory.",
+        help="Build Nassi-Shneiderman HTML diagrams for all Verilog files in a directory.",
     )
     nassi_dir.add_argument("path", help="Path to a directory.")
     nassi_dir.add_argument(
         "--out",
         help="Output directory. Defaults to <input>.nassi/.",
     )
+
+    verilog_file = subparsers.add_parser(
+        "verilog-file",
+        help="Export behavioral Verilog for one Verilog file.",
+    )
+    verilog_file.add_argument("path", help="Path to a .v file.")
+    verilog_file.add_argument(
+        "--out",
+        help="Output Verilog path. Defaults to <input>.v.",
+    )
+
+    verilog_dir = subparsers.add_parser(
+        "verilog-dir",
+        help="Export behavioral Verilog for all Verilog files in a directory.",
+    )
+    verilog_dir.add_argument("path", help="Path to a directory.")
+    verilog_dir.add_argument(
+        "--out",
+        help="Output directory. Defaults to <input>.verilog/.",
+    )
+
     return parser
 
 
 def _build_parse_service() -> ParsingJobService:
     return ParsingJobService(
         source_repository=FileSystemSourceRepository(),
-        parser=AntlrSwiftSyntaxParser(),
+        parser=AntlrVerilogSyntaxParser(),
         event_publisher=StructuredLoggingEventPublisher(),
         clock=SystemClock(),
         job_repository=InMemoryParsingJobRepository(),
@@ -136,8 +203,16 @@ def _build_parse_service() -> ParsingJobService:
 def _build_nassi_service() -> NassiDiagramService:
     return NassiDiagramService(
         source_repository=FileSystemSourceRepository(),
-        extractor=AntlrSwiftControlFlowExtractor(),
+        extractor=AntlrVerilogControlFlowExtractor(),
         renderer=HtmlNassiDiagramRenderer(),
+    )
+
+
+def _build_verilog_service() -> VerilogExportService:
+    return VerilogExportService(
+        source_repository=FileSystemSourceRepository(),
+        extractor=AntlrVerilogControlFlowExtractor(),
+        renderer=VerilogDiagramRenderer(),
     )
 
 
@@ -161,6 +236,26 @@ def _resolve_output_directory(input_path: str, explicit_output_path: str | None)
 
     resolved_input = Path(input_path).expanduser().resolve()
     return resolved_input.with_name(f"{resolved_input.name}.nassi")
+
+
+def _resolve_verilog_output_path(
+    input_path: str, explicit_output_path: str | None
+) -> Path:
+    if explicit_output_path:
+        return Path(explicit_output_path).expanduser().resolve()
+
+    resolved_input = Path(input_path).expanduser().resolve()
+    return resolved_input.with_suffix(".v")
+
+
+def _resolve_verilog_output_directory(
+    input_path: str, explicit_output_path: str | None
+) -> Path:
+    if explicit_output_path:
+        return Path(explicit_output_path).expanduser().resolve()
+
+    resolved_input = Path(input_path).expanduser().resolve()
+    return resolved_input.with_name(f"{resolved_input.name}.verilog")
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,6 +293,57 @@ def _write_directory_diagrams(
             )
         )
     return tuple(written_diagrams)
+
+
+@dataclass(frozen=True, slots=True)
+class _WrittenVerilogDoc:
+    source_location: str
+    function_count: int
+    function_names: tuple[str, ...]
+    output_path: Path
+    relative_output_path: str
+    relative_source_path: str
+
+
+def _write_directory_verilog(
+    bundle: VerilogBundleDTO,
+    output_dir: Path,
+) -> tuple[_WrittenVerilogDoc, ...]:
+    root_path = Path(bundle.root_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    written_docs: list[_WrittenVerilogDoc] = []
+    for document in bundle.documents:
+        source_path = Path(document.source_location)
+        relative_source_path = source_path.relative_to(root_path)
+        output_path = (output_dir / relative_source_path).with_suffix(".v")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(document.verilog, encoding="utf-8")
+        written_docs.append(
+            _WrittenVerilogDoc(
+                source_location=document.source_location,
+                function_count=document.function_count,
+                function_names=document.function_names,
+                output_path=output_path,
+                relative_output_path=output_path.relative_to(output_dir).as_posix(),
+                relative_source_path=relative_source_path.as_posix(),
+            )
+        )
+    return tuple(written_docs)
+
+
+def _render_verilog_index(
+    root_path: str,
+    written_docs: tuple[_WrittenVerilogDoc, ...],
+) -> str:
+    lines = [f"Swifta Verilog Index", f"Root: {root_path}", ""]
+    if not written_docs:
+        lines.append("No Verilog files generated.")
+    for doc in written_docs:
+        names = ", ".join(doc.function_names) if doc.function_names else "No functions found"
+        lines.append(f"  {doc.relative_source_path} -> {doc.relative_output_path}")
+        lines.append(f"    Functions ({doc.function_count}): {names}")
+    return "\n".join(lines) + "\n"
 
 
 def _render_directory_index(

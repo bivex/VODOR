@@ -16,7 +16,7 @@ from swifta.infrastructure.antlr.error_listener import CollectingErrorListener
 
 
 ANTLR_GRAMMAR_VERSION = GrammarVersion(
-    "antlr4@4.13.2+python-compat:antlr/grammars-v4/swift/swift5 (targets Swift 5.4)"
+    "antlr4@4.13.2+python-compat:antlr/grammars-v4/verilog/verilog (Verilog-2005)"
 )
 
 
@@ -38,24 +38,24 @@ class ParseTreeResult:
 def load_generated_types() -> GeneratedParserTypes:
     try:
         lexer_module = importlib.import_module(
-            "swifta.infrastructure.antlr.generated.swift5.Swift5Lexer"
+            "swifta.infrastructure.antlr.generated.verilog.VerilogLexer"
         )
         parser_module = importlib.import_module(
-            "swifta.infrastructure.antlr.generated.swift5.Swift5Parser"
+            "swifta.infrastructure.antlr.generated.verilog.VerilogParser"
         )
         visitor_module = importlib.import_module(
-            "swifta.infrastructure.antlr.generated.swift5.Swift5ParserVisitor"
+            "swifta.infrastructure.antlr.generated.verilog.VerilogParserVisitor"
         )
     except ModuleNotFoundError as error:
         raise GeneratedParserNotAvailableError(
-            "generated Swift parser artifacts are missing; run "
-            "`uv run python scripts/generate_swift_parser.py` first"
+            "generated Verilog parser artifacts are missing; run "
+            "`uv run python scripts/generate_verilog_parser.py` first"
         ) from error
 
     return GeneratedParserTypes(
-        lexer_type=lexer_module.Swift5Lexer,
-        parser_type=parser_module.Swift5Parser,
-        visitor_type=visitor_module.Swift5ParserVisitor,
+        lexer_type=lexer_module.VerilogLexer,
+        parser_type=parser_module.VerilogParser,
+        visitor_type=visitor_module.VerilogParserVisitor,
     )
 
 
@@ -65,7 +65,7 @@ def parse_source_text(
 ) -> ParseTreeResult:
     return _parse_entry_text(
         source_text,
-        entry_rule_name="top_level",
+        entry_rule_name="source_text",
         generated_types=generated_types,
     )
 
@@ -76,7 +76,7 @@ def parse_code_block_text(
 ) -> ParseTreeResult:
     return _parse_entry_text(
         source_text,
-        entry_rule_name="code_block",
+        entry_rule_name="statement",
         generated_types=generated_types,
     )
 
