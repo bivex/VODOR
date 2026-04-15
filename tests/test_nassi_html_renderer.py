@@ -28,7 +28,9 @@ from swifta.infrastructure.rendering.nassi_html_renderer import (
 )
 
 
-def _render_steps(*steps: ControlFlowStep, name: str = "test_func", signature: str = "func test()") -> str:
+def _render_steps(
+    *steps: ControlFlowStep, name: str = "test_func", signature: str = "func test()"
+) -> str:
     diagram = ControlFlowDiagram(
         source_location="test.v",
         functions=(
@@ -68,7 +70,9 @@ class TestNassiHtmlBoilerplate:
         assert "No functions found" in html
 
     def test_function_panel_with_name_and_signature(self) -> None:
-        html = _render_steps(ActionFlowStep("x <= 1"), name="my_block", signature="always @(posedge clk)")
+        html = _render_steps(
+            ActionFlowStep("x <= 1"), name="my_block", signature="always @(posedge clk)"
+        )
         assert "my_block" in html
         assert "always @(posedge clk)" in html
 
@@ -92,7 +96,9 @@ class TestNassiHtmlAction:
 
 class TestNassiHtmlIf:
     def test_if_only_has_yes_branch(self) -> None:
-        html = _render_steps(IfFlowStep(condition="rst", then_steps=(ActionFlowStep("x <= 0"),), else_steps=()))
+        html = _render_steps(
+            IfFlowStep(condition="rst", then_steps=(ActionFlowStep("x <= 0"),), else_steps=())
+        )
         assert "Yes" in html
         assert "No branch continues" in html
 
@@ -114,7 +120,9 @@ class TestNassiHtmlIf:
             IfFlowStep(
                 condition="a",
                 then_steps=(
-                    IfFlowStep(condition="b", then_steps=(ActionFlowStep("z <= 1"),), else_steps=()),
+                    IfFlowStep(
+                        condition="b", then_steps=(ActionFlowStep("z <= 1"),), else_steps=()
+                    ),
                 ),
                 else_steps=(),
             )
@@ -131,7 +139,9 @@ class TestNassiHtmlIf:
 
 class TestNassiHtmlWhile:
     def test_while_header_and_body(self) -> None:
-        html = _render_steps(WhileFlowStep(condition="ready == 0", body_steps=(ActionFlowStep("x <= x + 1"),)))
+        html = _render_steps(
+            WhileFlowStep(condition="ready == 0", body_steps=(ActionFlowStep("x <= x + 1"),))
+        )
         assert "While ready == 0" in html
         assert "x &lt;= x + 1" in html
         assert "ns-loop" in html
@@ -139,14 +149,20 @@ class TestNassiHtmlWhile:
 
 class TestNassiHtmlFor:
     def test_for_header_and_body(self) -> None:
-        html = _render_steps(ForInFlowStep(header="i = 0; i < 8; i = i + 1", body_steps=(ActionFlowStep("x <= i"),)))
+        html = _render_steps(
+            ForInFlowStep(header="i = 0; i < 8; i = i + 1", body_steps=(ActionFlowStep("x <= i"),))
+        )
         assert "For i = 0; i &lt; 8; i = i + 1" in html
         assert "x &lt;= i" in html
 
 
 class TestNassiHtmlRepeat:
     def test_repeat_has_header_and_footer(self) -> None:
-        html = _render_steps(RepeatWhileFlowStep(condition="count > 0", body_steps=(ActionFlowStep("count <= count - 1"),)))
+        html = _render_steps(
+            RepeatWhileFlowStep(
+                condition="count > 0", body_steps=(ActionFlowStep("count <= count - 1"),)
+            )
+        )
         assert "Repeat" in html
         assert "While count &gt; 0" in html
         assert "ns-repeat" in html
@@ -243,7 +259,9 @@ class TestNassiHtmlDelay:
 
 class TestNassiHtmlEventWait:
     def test_event_wait_renders(self) -> None:
-        html = _render_steps(EventWaitFlowStep(event="posedge clk", body_steps=(ActionFlowStep("x <= data"),)))
+        html = _render_steps(
+            EventWaitFlowStep(event="posedge clk", body_steps=(ActionFlowStep("x <= data"),))
+        )
         assert "@ posedge clk" in html
         assert "x &lt;= data" in html
         assert "ns-event" in html
@@ -254,7 +272,9 @@ class TestNassiHtmlEventWait:
 
 class TestNassiHtmlWaitCondition:
     def test_wait_condition_renders(self) -> None:
-        html = _render_steps(WaitConditionFlowStep(condition="ready == 1", body_steps=(ActionFlowStep("x <= data"),)))
+        html = _render_steps(
+            WaitConditionFlowStep(condition="ready == 1", body_steps=(ActionFlowStep("x <= data"),))
+        )
         assert "Wait ready == 1" in html
         assert "x &lt;= data" in html
         assert "ns-wait" in html
@@ -298,6 +318,7 @@ class TestNassiHtmlUnsupported:
             pass
 
         import pytest
+
         with pytest.raises(TypeError, match="unsupported step type"):
             _render_steps(FakeStep())
 
@@ -363,3 +384,57 @@ class TestNassiHtmlSensitivityBadge:
         assert "kind-badge" in html
         assert "function" in html
         assert "adder" in html
+
+
+class TestTopLevelPanel:
+    def test_top_level_panel_appears_before_functions(self):
+        diagram = ControlFlowDiagram(
+            source_location="top.v",
+            functions=(
+                FunctionControlFlow(
+                    name="always_1",
+                    signature="always @(posedge clk)",
+                    container=None,
+                    steps=(ActionFlowStep("x <= 1"),),
+                ),
+            ),
+            top_level_steps=(ActionFlowStep("assign a = b"), ActionFlowStep("assign c = d")),
+        )
+        html = HtmlNassiDiagramRenderer().render(diagram)
+        module_panel_idx = html.find("Module")
+        always_panel_idx = html.find("always_1")
+        assert module_panel_idx < always_panel_idx
+        assert "Module" in html
+        assert "continuous assignments" in html
+        assert "MODULE" in html
+        assert "assign a = b" in html
+        assert "assign c = d" in html
+
+    def test_top_level_panel_escapes_html(self):
+        diagram = ControlFlowDiagram(
+            source_location="top.v",
+            functions=(),
+            top_level_steps=(ActionFlowStep("a < b && c > d"),),
+        )
+        html = HtmlNassiDiagramRenderer().render(diagram)
+        assert "a &lt; b &amp;&amp; c &gt; d" in html
+        assert "Module" in html
+
+    def test_no_top_level_panel_when_empty(self):
+        diagram = ControlFlowDiagram(
+            source_location="top.v",
+            functions=(
+                FunctionControlFlow(
+                    name="always_1",
+                    signature="always @(posedge clk)",
+                    container=None,
+                    steps=(ActionFlowStep("x <= 1"),),
+                ),
+            ),
+            top_level_steps=(),
+        )
+        html = HtmlNassiDiagramRenderer().render(diagram)
+        assert "Module" not in html
+        assert "continuous assignments" not in html
+        assert "MODULE" not in html
+        assert "always_1" in html

@@ -141,3 +141,4 @@ class FunctionControlFlow:
 class ControlFlowDiagram:
     source_location: str
     functions: tuple[FunctionControlFlow, ...]
+    top_level_steps: tuple[ControlFlowStep, ...] = ()

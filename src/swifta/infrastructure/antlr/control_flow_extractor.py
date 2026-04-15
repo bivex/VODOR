@@ -35,11 +35,16 @@ class _BlockSlice:
     kind: str = "always"
     sensitivity: str | None = None
     signature: str | None = None
+    start: int = 0
+    end: int = 0
 
 
 class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
     def extract(self, source_unit: SourceUnit) -> ControlFlowDiagram:
-        blocks = _scan_procedural_blocks(source_unit.content)
+        cleaned = _strip_comments(source_unit.content)
+        blocks = _scan_procedural_blocks_impl(cleaned)
+        top_actions = _scan_top_level_actions(cleaned, blocks)
+
         functions = tuple(
             FunctionControlFlow(
                 name=block.name,
@@ -53,19 +58,21 @@ class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
         return ControlFlowDiagram(
             source_location=source_unit.location,
             functions=functions,
+            top_level_steps=tuple(top_actions),
         )
 
 
 def _scan_procedural_blocks(source_text: str) -> tuple[_BlockSlice, ...]:
-    source_text = _strip_comments(source_text)
+    cleaned = _strip_comments(source_text)
+    return _scan_procedural_blocks_impl(cleaned)
+
+
+def _scan_procedural_blocks_impl(cleaned_text: str) -> tuple[_BlockSlice, ...]:
     blocks: list[_BlockSlice] = []
-
     # Scan always/initial blocks
-    blocks.extend(_scan_always_initial(source_text))
-
+    blocks.extend(_scan_always_initial(cleaned_text))
     # Scan function/task blocks
-    blocks.extend(_scan_function_task(source_text))
-
+    blocks.extend(_scan_function_task(cleaned_text))
     # Preserve source order
     return tuple(blocks)
 
@@ -80,10 +87,11 @@ def _scan_always_initial(source_text: str) -> list[_BlockSlice]:
         if not match:
             break
         kind = match.group(1).lower()
+        block_start = match.start()
 
         # Capture sensitivity list for always blocks: @(...) or @*
         sensitivity: str | None = None
-        rest = source_text[match.end():]
+        rest = source_text[match.end() :]
         sens_match = re.match(r"\s*@\s*(\([^)]*\)|\*)", rest)
         if sens_match:
             sensitivity = sens_match.group(1).strip()
@@ -99,10 +107,20 @@ def _scan_always_initial(source_text: str) -> list[_BlockSlice]:
                 index = after_sens
                 continue
             body = source_text[after_sens:semi].strip()
+            block_end = semi + 1
             if body:
-                blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body, kind=kind, sensitivity=sensitivity))
+                blocks.append(
+                    _BlockSlice(
+                        name=f"{kind}_{counter}",
+                        body=body,
+                        kind=kind,
+                        sensitivity=sensitivity,
+                        start=block_start,
+                        end=block_end,
+                    )
+                )
                 counter += 1
-            index = semi + 1
+            index = block_end
             continue
 
         end_index = _find_matching_end(source_text, begin_index)
@@ -110,9 +128,19 @@ def _scan_always_initial(source_text: str) -> list[_BlockSlice]:
             index = after_sens
             continue
         body = source_text[begin_index + len("begin") : end_index].strip()
-        blocks.append(_BlockSlice(name=f"{kind}_{counter}", body=body, kind=kind, sensitivity=sensitivity))
+        block_end = end_index + 3  # len("end")
+        blocks.append(
+            _BlockSlice(
+                name=f"{kind}_{counter}",
+                body=body,
+                kind=kind,
+                sensitivity=sensitivity,
+                start=block_start,
+                end=block_end,
+            )
+        )
         counter += 1
-        index = end_index + len("end")
+        index = block_end
     return blocks
 
 
@@ -125,6 +153,7 @@ def _scan_function_task(source_text: str) -> list[_BlockSlice]:
         if not match:
             break
         kind = match.group(1).lower()
+        block_start = match.start()
         after_keyword = match.end()
 
         # Extract the rest of the header line (until ';')
@@ -149,9 +178,19 @@ def _scan_function_task(source_text: str) -> list[_BlockSlice]:
         # Build signature from the full header
         signature = f"{kind} {header_line}"
 
-        blocks.append(_BlockSlice(name=name, body=body, kind=kind, sensitivity=None, signature=signature))
-        index = end_match.end()
-
+        block_end = end_match.end()
+        blocks.append(
+            _BlockSlice(
+                name=name,
+                body=body,
+                kind=kind,
+                sensitivity=None,
+                signature=signature,
+                start=block_start,
+                end=block_end,
+            )
+        )
+        index = block_end
     return blocks
 
 
@@ -161,8 +200,17 @@ def _extract_last_identifier(text: str) -> str | None:
     tokens = re.findall(r"[a-zA-Z_]\w*", text)
     # Filter out Verilog keywords that commonly appear in headers
     keywords = {
-        "input", "output", "inout", "reg", "wire", "integer",
-        "signed", "unsigned", "begin", "end", "automatic",
+        "input",
+        "output",
+        "inout",
+        "reg",
+        "wire",
+        "integer",
+        "signed",
+        "unsigned",
+        "begin",
+        "end",
+        "automatic",
     }
     for token in reversed(tokens):
         if token.lower() not in keywords:
@@ -609,7 +657,7 @@ def _parse_delay(lines: list[str], index: int) -> tuple[DelayFlowStep, int]:
     # Check for same-line statement after delay
     after_delay = ""
     if delay_match:
-        after_delay = line[delay_match.end():].strip().removesuffix(";").strip()
+        after_delay = line[delay_match.end() :].strip().removesuffix(";").strip()
 
     index += 1
 
@@ -740,7 +788,7 @@ def _extract_after_parenthesized(text: str) -> str:
     close_index = text.find(")", open_index)
     if close_index == -1:
         return ""
-    after = text[close_index + 1:].strip().removesuffix(";").strip()
+    after = text[close_index + 1 :].strip().removesuffix(";").strip()
     return after
 
 
@@ -753,6 +801,34 @@ def _is_case_label_line(line: str) -> bool:
     return ":" in stripped and not stripped.lower().startswith(
         ("if ", "for ", "while ", "repeat ", "case ", "//")
     )
+
+
+def _scan_top_level_actions(
+    cleaned_text: str, blocks: tuple[_BlockSlice, ...]
+) -> list[ActionFlowStep]:
+    """Extract top-level continuous assignment statements (`assign`, `force`, `release`)
+    that appear outside of any procedural block (always, initial, function, task).
+
+    Args:
+        cleaned_text: Verilog source with /* */ and // comments removed.
+        blocks: Tuple of procedural block slices with start/end offsets.
+
+    Returns:
+        List of ActionFlowStep objects in source order.
+    """
+    # Build exclusion intervals from block spans
+    excluded = sorted([(b.start, b.end) for b in blocks], key=lambda x: x[0])
+
+    pattern = re.compile(r"\b(assign|force|release)\b[^;]*;", re.IGNORECASE)
+    actions: list[ActionFlowStep] = []
+    for match in pattern.finditer(cleaned_text):
+        s, e = match.start(), match.end()
+        # Check if this match lies entirely within any excluded block
+        inside = any(s >= ex_start and e <= ex_end for (ex_start, ex_end) in excluded)
+        if not inside:
+            stmt = match.group().strip().removesuffix(";").strip()
+            actions.append(ActionFlowStep(stmt))
+    return actions
 
 
 # Backward-compatible alias for downstream imports during migration.

@@ -46,12 +46,17 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
         rules = []
         for i in range(51):
             c = colors[i % 5]
-            rules.append(f"      .ns-if-depth-{i}-triangle {{ fill: var(--{c}-dim); stroke: var(--{c}); }}")
+            rules.append(
+                f"      .ns-if-depth-{i}-triangle {{ fill: var(--{c}-dim); stroke: var(--{c}); }}"
+            )
             rules.append(f"      .ns-if-depth-{i}-diagonal {{ stroke: var(--{c}); }}")
         return "\n".join(rules)
 
     def render(self, diagram: ControlFlowDiagram) -> str:
-        sections = "".join(self._render_function(function) for function in diagram.functions)
+        sections = ""
+        if diagram.top_level_steps:
+            sections += self._render_top_level(diagram.top_level_steps)
+        sections += "".join(self._render_function(function) for function in diagram.functions)
         if not sections:
             sections = '<section class="function-panel"><p class="empty-file">No functions found.</p></section>'
 
@@ -623,6 +628,21 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
             "</section>"
         )
 
+    def _render_top_level(self, steps: tuple[ControlFlowStep, ...]) -> str:
+        """Render a panel for module-level continuous assignment steps."""
+        return (
+            '<section class="function-panel">'
+            '<div class="function-head">'
+            '<h2 class="function-title">Module</h2>'
+            '<div class="function-signature">continuous assignments</div>'
+            '<div class="function-meta"><span class="kind-badge">MODULE</span></div>'
+            "</div>"
+            '<div class="function-body">'
+            f"{self._render_sequence(steps, depth=0)}"
+            "</div>"
+            "</section>"
+        )
+
     def _render_sequence(self, steps: tuple[ControlFlowStep, ...], *, depth: int) -> str:
         if not steps:
             return '<div class="empty">No structured steps.</div>'
@@ -642,12 +662,12 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
             return (
                 '<div class="ns-node ns-struct">'
                 f'<div class="ns-header" aria-label="Struct {escape(step.name)}">'
-                f'Struct {escape(step.name)}'
+                f"Struct {escape(step.name)}"
                 "</div>"
                 '<div class="ns-body">'
                 "<ul>"
                 + "".join(
-                    f'<li><code>{escape(field_name)}</code>: {escape(field_type)}</li>'
+                    f"<li><code>{escape(field_name)}</code>: {escape(field_type)}</li>"
                     for field_name, field_type in step.fields
                 )
                 + "</ul>"
@@ -660,7 +680,7 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
             return (
                 '<div class="ns-node ns-struct-access">'
                 f'<div class="ns-label" aria-label="Struct {escape(step.struct_name)}.{escape(step.field_name)} ({direction})">'
-                f'<code>{escape(step.struct_name)}.{escape(step.field_name)}</code>'
+                f"<code>{escape(step.struct_name)}.{escape(step.field_name)}</code>"
                 "</div>"
                 "</div>"
             )
@@ -731,9 +751,13 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
                 "</div>"
             )
         if isinstance(step, DeferFlowStep):
-            return self._render_single_body("Defer", step.body_steps, depth=depth, css_class="ns-defer")
+            return self._render_single_body(
+                "Defer", step.body_steps, depth=depth, css_class="ns-defer"
+            )
         if isinstance(step, ForeverFlowStep):
-            return self._render_single_body("Forever", step.body_steps, depth=depth, css_class="ns-loop")
+            return self._render_single_body(
+                "Forever", step.body_steps, depth=depth, css_class="ns-loop"
+            )
         if isinstance(step, DisableFlowStep):
             return (
                 '<div class="ns-node ns-action">'
@@ -751,11 +775,17 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
                 "</div>"
             )
         if isinstance(step, DelayFlowStep):
-            return self._render_single_body(f"#{step.delay}", step.body_steps, depth=depth, css_class="ns-delay")
+            return self._render_single_body(
+                f"#{step.delay}", step.body_steps, depth=depth, css_class="ns-delay"
+            )
         if isinstance(step, EventWaitFlowStep):
-            return self._render_single_body(f"@ {step.event}", step.body_steps, depth=depth, css_class="ns-event")
+            return self._render_single_body(
+                f"@ {step.event}", step.body_steps, depth=depth, css_class="ns-event"
+            )
         if isinstance(step, WaitConditionFlowStep):
-            return self._render_single_body(f"Wait {step.condition}", step.body_steps, depth=depth, css_class="ns-wait")
+            return self._render_single_body(
+                f"Wait {step.condition}", step.body_steps, depth=depth, css_class="ns-wait"
+            )
         raise TypeError(f"unsupported step type: {type(step)!r}")
 
     def _render_case(self, case: SwitchCaseFlow) -> str:
@@ -832,14 +862,14 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
             f'<foreignObject x="20" y="6" width="{content_width}" height="{text_height}" '
             'class="ns-if-condition-fo">'
             f'<div xmlns="http://www.w3.org/1999/xhtml" class="ns-if-condition-text">{badge} {escaped}</div>'
-            '</foreignObject>'
+            "</foreignObject>"
             f'<line x1="0" y1="{split_y}" x2="{half_width}" y2="{svg_height}" '
             f'class="ns-if-diagonal ns-if-depth-{d}-diagonal"/>'
             f'<line x1="{svg_width}" y1="{split_y}" x2="{half_width}" y2="{svg_height}" '
             f'class="ns-if-diagonal ns-if-depth-{d}-diagonal"/>'
             f'<text x="{yes_x}" y="{label_y}" text-anchor="middle" class="ns-if-label-yes">Yes</text>'
             f'<text x="{no_x}" y="{label_y}" text-anchor="middle" class="ns-if-label-no">No</text>'
-            '</svg>'
+            "</svg>"
             "</div>"
         )
 

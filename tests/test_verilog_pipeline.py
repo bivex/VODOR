@@ -26,6 +26,8 @@ from swifta.infrastructure.antlr.control_flow_extractor import (
 from swifta.infrastructure.antlr.control_flow_extractor import (
     _extract_steps,
     _scan_procedural_blocks,
+    _scan_top_level_actions,
+    _strip_comments,
 )
 from swifta.infrastructure.antlr.parser_adapter import (
     _extract_structural_elements,
@@ -210,12 +212,14 @@ def test_source_repository_rejects_non_verilog_extension(tmp_path) -> None:
 
 
 def test_extract_steps_handles_casez() -> None:
-    body = "\n".join([
-        "casez (data)",
-        "8'b1???_????: result <= 8'hFF;",
-        "default: result <= 8'h00;",
-        "endcase",
-    ])
+    body = "\n".join(
+        [
+            "casez (data)",
+            "8'b1???_????: result <= 8'hFF;",
+            "default: result <= 8'h00;",
+            "endcase",
+        ]
+    )
     steps = _extract_steps(body)
     assert len(steps) == 1
     assert isinstance(steps[0], SwitchFlowStep)
@@ -223,12 +227,14 @@ def test_extract_steps_handles_casez() -> None:
 
 
 def test_extract_steps_handles_casex() -> None:
-    body = "\n".join([
-        "casex (data)",
-        "8'b1xxx_xxxx: result <= 8'hFE;",
-        "default: result <= 8'h00;",
-        "endcase",
-    ])
+    body = "\n".join(
+        [
+            "casex (data)",
+            "8'b1xxx_xxxx: result <= 8'hFE;",
+            "default: result <= 8'h00;",
+            "endcase",
+        ]
+    )
     steps = _extract_steps(body)
     assert len(steps) == 1
     assert isinstance(steps[0], SwitchFlowStep)
@@ -236,11 +242,13 @@ def test_extract_steps_handles_casex() -> None:
 
 
 def test_extract_steps_strips_comments() -> None:
-    body = "\n".join([
-        "// This is a comment",
-        "result <= data_in; /* inline block comment */",
-        "accumulator <= accumulator + 1;",
-    ])
+    body = "\n".join(
+        [
+            "// This is a comment",
+            "result <= data_in; /* inline block comment */",
+            "accumulator <= accumulator + 1;",
+        ]
+    )
     steps = _extract_steps(body)
     # Comment line should NOT become an action step
     assert len(steps) == 2
@@ -248,11 +256,13 @@ def test_extract_steps_strips_comments() -> None:
 
 
 def test_extract_steps_handles_named_begin() -> None:
-    body = "\n".join([
-        "begin : my_block",
-        "result <= data_in;",
-        "end",
-    ])
+    body = "\n".join(
+        [
+            "begin : my_block",
+            "result <= data_in;",
+            "end",
+        ]
+    )
     steps = _extract_steps(body)
     assert len(steps) == 1
     assert isinstance(steps[0], ActionFlowStep)
@@ -274,12 +284,14 @@ def test_scan_captures_sensitivity_list() -> None:
 
 
 def test_extract_steps_handles_fork_join() -> None:
-    body = "\n".join([
-        "fork",
-        "result <= data_in;",
-        "accumulator <= 0;",
-        "join",
-    ])
+    body = "\n".join(
+        [
+            "fork",
+            "result <= data_in;",
+            "accumulator <= 0;",
+            "join",
+        ]
+    )
     steps = _extract_steps(body)
     assert len(steps) == 1
     assert isinstance(steps[0], ForkJoinFlowStep)
@@ -288,11 +300,13 @@ def test_extract_steps_handles_fork_join() -> None:
 
 
 def test_extract_steps_handles_fork_join_any() -> None:
-    body = "\n".join([
-        "fork",
-        "result <= data_in;",
-        "join_any",
-    ])
+    body = "\n".join(
+        [
+            "fork",
+            "result <= data_in;",
+            "join_any",
+        ]
+    )
     steps = _extract_steps(body)
     assert len(steps) == 1
     assert isinstance(steps[0], ForkJoinFlowStep)
@@ -308,10 +322,12 @@ def test_extract_steps_handles_delay() -> None:
 
 
 def test_extract_steps_handles_event_wait() -> None:
-    body = "\n".join([
-        "@(posedge clk)",
-        "result <= data_in;",
-    ])
+    body = "\n".join(
+        [
+            "@(posedge clk)",
+            "result <= data_in;",
+        ]
+    )
     steps = _extract_steps(body)
     assert len(steps) == 1
     assert isinstance(steps[0], EventWaitFlowStep)
@@ -319,10 +335,12 @@ def test_extract_steps_handles_event_wait() -> None:
 
 
 def test_extract_steps_handles_wait_condition() -> None:
-    body = "\n".join([
-        "wait (ready == 1'b1)",
-        "accumulator <= accumulator + 1;",
-    ])
+    body = "\n".join(
+        [
+            "wait (ready == 1'b1)",
+            "accumulator <= accumulator + 1;",
+        ]
+    )
     steps = _extract_steps(body)
     assert len(steps) == 1
     assert isinstance(steps[0], WaitConditionFlowStep)
@@ -331,6 +349,7 @@ def test_extract_steps_handles_wait_condition() -> None:
 
 def test_full_fixture_extracts_all_constructs() -> None:
     import pathlib
+
     fixture = pathlib.Path(__file__).parent / "fixtures" / "full.v"
     source = SourceUnit(
         identifier=SourceUnitId("full.v"),
@@ -359,6 +378,7 @@ def test_full_fixture_extracts_all_constructs() -> None:
 
 def _collect_step_types(steps, result: set) -> None:
     from swifta.domain.control_flow import ControlFlowStep
+
     for s in steps:
         result.add(type(s))
         if hasattr(s, "then_steps"):
@@ -377,12 +397,14 @@ def _collect_step_types(steps, result: set) -> None:
 
 class TestScanProceduralBlocks:
     def test_multiple_always_blocks(self) -> None:
-        source = "\n".join([
-            "module top;",
-            "always @(posedge clk) begin x <= 1; end",
-            "always @(posedge rst) begin y <= 0; end",
-            "endmodule",
-        ])
+        source = "\n".join(
+            [
+                "module top;",
+                "always @(posedge clk) begin x <= 1; end",
+                "always @(posedge rst) begin y <= 0; end",
+                "endmodule",
+            ]
+        )
         blocks = _scan_procedural_blocks(source)
         assert len(blocks) == 2
         assert blocks[0].name == "always_1"
@@ -408,27 +430,31 @@ class TestScanProceduralBlocks:
         assert "result <= data" in blocks[0].body
 
     def test_comments_in_source_ignored(self) -> None:
-        source = "\n".join([
-            "module top;",
-            "// always should not match",
-            "always @(posedge clk) begin x <= 1; end",
-            "endmodule",
-        ])
+        source = "\n".join(
+            [
+                "module top;",
+                "// always should not match",
+                "always @(posedge clk) begin x <= 1; end",
+                "endmodule",
+            ]
+        )
         blocks = _scan_procedural_blocks(source)
         assert len(blocks) == 1
 
     def test_deeply_nested_begin_end(self) -> None:
-        source = "\n".join([
-            "module top;",
-            "always @(posedge clk) begin",
-            "  if (a) begin",
-            "    if (b) begin",
-            "      x <= 1;",
-            "    end",
-            "  end",
-            "end",
-            "endmodule",
-        ])
+        source = "\n".join(
+            [
+                "module top;",
+                "always @(posedge clk) begin",
+                "  if (a) begin",
+                "    if (b) begin",
+                "      x <= 1;",
+                "    end",
+                "  end",
+                "end",
+                "endmodule",
+            ]
+        )
         blocks = _scan_procedural_blocks(source)
         assert len(blocks) == 1
         assert "x <= 1" in blocks[0].body
@@ -436,14 +462,16 @@ class TestScanProceduralBlocks:
 
 class TestExtractStepsIf:
     def test_if_else_if_chain(self) -> None:
-        body = "\n".join([
-            "if (a > 0)",
-            "x <= 1;",
-            "else if (a > 10)",
-            "x <= 2;",
-            "else",
-            "x <= 3;",
-        ])
+        body = "\n".join(
+            [
+                "if (a > 0)",
+                "x <= 1;",
+                "else if (a > 10)",
+                "x <= 2;",
+                "else",
+                "x <= 3;",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         if_step = steps[0]
@@ -455,12 +483,14 @@ class TestExtractStepsIf:
         assert len(nested_if.else_steps) == 1
 
     def test_if_with_begin_on_same_line(self) -> None:
-        body = "\n".join([
-            "if (en) begin",
-            "x <= 1;",
-            "y <= 2;",
-            "end",
-        ])
+        body = "\n".join(
+            [
+                "if (en) begin",
+                "x <= 1;",
+                "y <= 2;",
+                "end",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], IfFlowStep)
@@ -475,12 +505,14 @@ class TestExtractStepsIf:
 
 class TestExtractStepsWhile:
     def test_while_with_begin(self) -> None:
-        body = "\n".join([
-            "while (count > 0) begin",
-            "count <= count - 1;",
-            "result <= result + 1;",
-            "end",
-        ])
+        body = "\n".join(
+            [
+                "while (count > 0) begin",
+                "count <= count - 1;",
+                "result <= result + 1;",
+                "end",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], WhileFlowStep)
@@ -490,10 +522,12 @@ class TestExtractStepsWhile:
 
 class TestExtractStepsFor:
     def test_for_header_extraction(self) -> None:
-        body = "\n".join([
-            "for (i = 0; i < 8; i = i + 1)",
-            "result <= result << 1;",
-        ])
+        body = "\n".join(
+            [
+                "for (i = 0; i < 8; i = i + 1)",
+                "result <= result << 1;",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], ForInFlowStep)
@@ -502,10 +536,12 @@ class TestExtractStepsFor:
 
 class TestExtractStepsRepeat:
     def test_repeat_condition(self) -> None:
-        body = "\n".join([
-            "repeat (8)",
-            "result <= result + 1;",
-        ])
+        body = "\n".join(
+            [
+                "repeat (8)",
+                "result <= result + 1;",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], RepeatWhileFlowStep)
@@ -514,11 +550,13 @@ class TestExtractStepsRepeat:
 
 class TestExtractStepsForever:
     def test_forever_with_begin(self) -> None:
-        body = "\n".join([
-            "forever begin",
-            "x <= x + 1;",
-            "end",
-        ])
+        body = "\n".join(
+            [
+                "forever begin",
+                "x <= x + 1;",
+                "end",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], ForeverFlowStep)
@@ -537,13 +575,15 @@ class TestExtractStepsDisable:
 class TestExtractStepsCase:
     def test_case_single_line_labels(self) -> None:
         """Single-line case labels: label: statement;"""
-        body = "\n".join([
-            "case (opcode)",
-            "4'h0: result <= 0;",
-            "4'h1: result <= 1;",
-            "default: result <= 2;",
-            "endcase",
-        ])
+        body = "\n".join(
+            [
+                "case (opcode)",
+                "4'h0: result <= 0;",
+                "4'h1: result <= 1;",
+                "default: result <= 2;",
+                "endcase",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], SwitchFlowStep)
@@ -552,75 +592,87 @@ class TestExtractStepsCase:
         assert all(len(c.steps) >= 1 for c in steps[0].cases)
 
     def test_case_multiline_labels(self) -> None:
-        body = "\n".join([
-            "case (state)",
-            "2'b00:",
-            "result <= 0;",
-            "result <= result + 1;",
-            "2'b01:",
-            "result <= 1;",
-            "endcase",
-        ])
+        body = "\n".join(
+            [
+                "case (state)",
+                "2'b00:",
+                "result <= 0;",
+                "result <= result + 1;",
+                "2'b01:",
+                "result <= 1;",
+                "endcase",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps[0].cases[0].steps) >= 1
         assert len(steps[0].cases[1].steps) >= 1
 
     def test_case_with_begin_end(self) -> None:
-        body = "\n".join([
-            "case (x)",
-            "0: begin",
-            "a <= 1;",
-            "b <= 2;",
-            "end",
-            "default: c <= 0;",
-            "endcase",
-        ])
+        body = "\n".join(
+            [
+                "case (x)",
+                "0: begin",
+                "a <= 1;",
+                "b <= 2;",
+                "end",
+                "default: c <= 0;",
+                "endcase",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps[0].cases) == 2
         # "0:" label with begin on same line — body contains a and b
         assert len(steps[0].cases[0].steps) >= 2
 
     def test_casez_single_line_labels(self) -> None:
-        body = "\n".join([
-            "casez (data)",
-            "8'b1???_????: result <= 1;",
-            "default: result <= 0;",
-            "endcase",
-        ])
+        body = "\n".join(
+            [
+                "casez (data)",
+                "8'b1???_????: result <= 1;",
+                "default: result <= 0;",
+                "endcase",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps[0].cases) == 2
         assert all(len(c.steps) >= 1 for c in steps[0].cases)
 
     def test_casex_single_line_labels(self) -> None:
-        body = "\n".join([
-            "casex (data)",
-            "8'b1xxx_xxxx: result <= 1;",
-            "default: result <= 0;",
-            "endcase",
-        ])
+        body = "\n".join(
+            [
+                "casex (data)",
+                "8'b1xxx_xxxx: result <= 1;",
+                "default: result <= 0;",
+                "endcase",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps[0].cases) == 2
 
 
 class TestExtractStepsFork:
     def test_fork_join_none(self) -> None:
-        body = "\n".join([
-            "fork",
-            "x <= 1;",
-            "join_none",
-        ])
+        body = "\n".join(
+            [
+                "fork",
+                "x <= 1;",
+                "join_none",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], ForkJoinFlowStep)
         assert steps[0].join_type == "join_none"
 
     def test_fork_with_nested_if(self) -> None:
-        body = "\n".join([
-            "fork",
-            "if (en) x <= 1;",
-            "y <= 2;",
-            "join",
-        ])
+        body = "\n".join(
+            [
+                "fork",
+                "if (en) x <= 1;",
+                "y <= 2;",
+                "join",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], ForkJoinFlowStep)
@@ -654,10 +706,12 @@ class TestExtractStepsEventWait:
         assert len(steps[0].body_steps) == 1
 
     def test_event_next_line(self) -> None:
-        body = "\n".join([
-            "@(posedge clk)",
-            "x <= data;",
-        ])
+        body = "\n".join(
+            [
+                "@(posedge clk)",
+                "x <= data;",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], EventWaitFlowStep)
@@ -674,10 +728,12 @@ class TestExtractStepsWaitCondition:
         assert len(steps[0].body_steps) == 1
 
     def test_wait_next_line(self) -> None:
-        body = "\n".join([
-            "wait (flag == 1)",
-            "x <= 1;",
-        ])
+        body = "\n".join(
+            [
+                "wait (flag == 1)",
+                "x <= 1;",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], WaitConditionFlowStep)
@@ -685,12 +741,14 @@ class TestExtractStepsWaitCondition:
 
 class TestExtractStepsComments:
     def test_line_comments_removed(self) -> None:
-        body = "\n".join([
-            "// comment only",
-            "x <= 1;",
-            "// another comment",
-            "y <= 2;",
-        ])
+        body = "\n".join(
+            [
+                "// comment only",
+                "x <= 1;",
+                "// another comment",
+                "y <= 2;",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 2
 
@@ -703,21 +761,25 @@ class TestExtractStepsComments:
 
 class TestExtractStepsNamedBegin:
     def test_named_begin_label_stripped(self) -> None:
-        body = "\n".join([
-            ": my_block",
-            "x <= 1;",
-            "y <= 2;",
-        ])
+        body = "\n".join(
+            [
+                ": my_block",
+                "x <= 1;",
+                "y <= 2;",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 2
         assert all(isinstance(s, ActionFlowStep) for s in steps)
 
     def test_begin_named_colon_in_body(self) -> None:
-        body = "\n".join([
-            "begin : labeled",
-            "x <= 1;",
-            "end",
-        ])
+        body = "\n".join(
+            [
+                "begin : labeled",
+                "x <= 1;",
+                "end",
+            ]
+        )
         steps = _extract_steps(body)
         assert len(steps) == 1
         assert isinstance(steps[0], ActionFlowStep)
@@ -752,17 +814,19 @@ class TestSignatureBuilding:
 
 class TestScanFunctionTask:
     def test_function_extraction(self) -> None:
-        source = "\n".join([
-            "module top;",
-            "function [7:0] adder;",
-            "  input [7:0] a;",
-            "  input [7:0] b;",
-            "  begin",
-            "    adder = a + b;",
-            "  end",
-            "endfunction",
-            "endmodule",
-        ])
+        source = "\n".join(
+            [
+                "module top;",
+                "function [7:0] adder;",
+                "  input [7:0] a;",
+                "  input [7:0] b;",
+                "  begin",
+                "    adder = a + b;",
+                "  end",
+                "endfunction",
+                "endmodule",
+            ]
+        )
         diagram = AntlrVerilogControlFlowExtractor().extract(
             SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
         )
@@ -773,16 +837,18 @@ class TestScanFunctionTask:
         assert any("a + b" in s.label for s in adder.steps if isinstance(s, ActionFlowStep))
 
     def test_task_extraction(self) -> None:
-        source = "\n".join([
-            "module top;",
-            "task reset_all;",
-            "  begin",
-            "    x <= 0;",
-            "    y <= 0;",
-            "  end",
-            "endtask",
-            "endmodule",
-        ])
+        source = "\n".join(
+            [
+                "module top;",
+                "task reset_all;",
+                "  begin",
+                "    x <= 0;",
+                "    y <= 0;",
+                "  end",
+                "endtask",
+                "endmodule",
+            ]
+        )
         diagram = AntlrVerilogControlFlowExtractor().extract(
             SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
         )
@@ -793,19 +859,21 @@ class TestScanFunctionTask:
         assert len(reset.steps) >= 1
 
     def test_function_with_control_flow(self) -> None:
-        source = "\n".join([
-            "module top;",
-            "function [7:0] clamp;",
-            "  input [7:0] val;",
-            "  begin",
-            "    if (val > 8'hFF)",
-            "      clamp = 8'hFF;",
-            "    else",
-            "      clamp = val;",
-            "  end",
-            "endfunction",
-            "endmodule",
-        ])
+        source = "\n".join(
+            [
+                "module top;",
+                "function [7:0] clamp;",
+                "  input [7:0] val;",
+                "  begin",
+                "    if (val > 8'hFF)",
+                "      clamp = 8'hFF;",
+                "    else",
+                "      clamp = val;",
+                "  end",
+                "endfunction",
+                "endmodule",
+            ]
+        )
         diagram = AntlrVerilogControlFlowExtractor().extract(
             SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
         )
@@ -817,13 +885,15 @@ class TestScanFunctionTask:
         assert len(if_steps) >= 1
 
     def test_function_always_initial_coexist(self) -> None:
-        source = "\n".join([
-            "module top;",
-            "always @(posedge clk) begin x <= 1; end",
-            "initial begin y <= 0; end",
-            "function [7:0] compute; begin compute = x + y; end endfunction",
-            "endmodule",
-        ])
+        source = "\n".join(
+            [
+                "module top;",
+                "always @(posedge clk) begin x <= 1; end",
+                "initial begin y <= 0; end",
+                "function [7:0] compute; begin compute = x + y; end endfunction",
+                "endmodule",
+            ]
+        )
         diagram = AntlrVerilogControlFlowExtractor().extract(
             SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
         )
@@ -834,15 +904,78 @@ class TestScanFunctionTask:
 
     def test_function_name_from_header(self) -> None:
         """Function name is the last identifier in the header line."""
-        source = "\n".join([
-            "module top;",
-            "function automatic [15:0] multiply;",
-            "  begin multiply = 0; end",
-            "endfunction",
-            "endmodule",
-        ])
+        source = "\n".join(
+            [
+                "module top;",
+                "function automatic [15:0] multiply;",
+                "  begin multiply = 0; end",
+                "endfunction",
+                "endmodule",
+            ]
+        )
         diagram = AntlrVerilogControlFlowExtractor().extract(
             SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
         )
         func_names = [f.name for f in diagram.functions]
         assert "multiply" in func_names
+
+
+class TestTopLevelActions:
+    def test_scan_top_level_actions_simple(self):
+        cleaned = "module top; assign a = b; assign c = d; endmodule"
+        blocks = ()
+        actions = _scan_top_level_actions(cleaned, blocks)
+        assert len(actions) == 2
+        assert actions[0].label == "assign a = b"
+        assert actions[1].label == "assign c = d"
+
+    def test_scan_top_level_actions_ignores_inside_always(self):
+        source = """module top;
+  always @(posedge clk) begin
+    x <= y;
+  end
+  assign a = b;
+endmodule"""
+        cleaned = _strip_comments(source)
+        blocks = _scan_procedural_blocks(cleaned)
+        actions = _scan_top_level_actions(cleaned, blocks)
+        assert len(actions) == 1
+        assert actions[0].label == "assign a = b"
+
+    def test_scan_top_level_actions_force_release(self):
+        source = "module top; force sig = 1'b1; release sig; endmodule"
+        cleaned = _strip_comments(source)
+        blocks = _scan_procedural_blocks(cleaned)
+        actions = _scan_top_level_actions(cleaned, blocks)
+        assert len(actions) == 2
+        assert actions[0].label == "force sig = 1'b1"
+        assert actions[1].label == "release sig"
+
+    def test_extractor_includes_top_level_steps(self):
+        source = "module top; assign a = b; always @(posedge clk) x <= y; endmodule"
+        source_unit = SourceUnit(identifier=SourceUnitId("top.v"), location="top.v", content=source)
+        diagram = AntlrVerilogControlFlowExtractor().extract(source_unit)
+        assert len(diagram.top_level_steps) == 1
+        assert isinstance(diagram.top_level_steps[0], ActionFlowStep)
+        assert diagram.top_level_steps[0].label == "assign a = b"
+        # Also check that always block is in functions
+        assert len(diagram.functions) == 1
+        assert diagram.functions[0].name == "always_1"
+
+    def test_top_level_steps_ordered_before_functions(self):
+        source = """module top;
+assign a = b;
+always @(posedge clk) x <= y;
+assign c = d;
+initial z = 0;
+endmodule"""
+        source_unit = SourceUnit(identifier=SourceUnitId("top.v"), location="top.v", content=source)
+        diagram = AntlrVerilogControlFlowExtractor().extract(source_unit)
+        # top_level_steps: both assigns in order
+        assert len(diagram.top_level_steps) == 2
+        assert diagram.top_level_steps[0].label == "assign a = b"
+        assert diagram.top_level_steps[1].label == "assign c = d"
+        # functions: always and initial in order of appearance
+        assert len(diagram.functions) == 2
+        assert diagram.functions[0].name == "always_1"
+        assert diagram.functions[1].name == "initial_2"
