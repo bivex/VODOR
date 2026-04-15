@@ -437,6 +437,9 @@ def _parse_if(lines: list[str], index: int) -> tuple[IfFlowStep, int]:
         if_part = if_part.replace(" begin", "").strip()
     condition = _extract_parenthesized(if_part) or "condition"
 
+    # Check for same-line then-body after the closing paren: if (cond) stmt;
+    same_line_body = _extract_after_parenthesized(if_part)
+
     index += 1
 
     if has_begin_on_same_line:
@@ -444,13 +447,19 @@ def _parse_if(lines: list[str], index: int) -> tuple[IfFlowStep, int]:
         then_steps, index = _parse_steps(lines, index, stop_prefixes={"end"})
         if index < len(lines) and lines[index].lower().startswith("end"):
             index += 1
+    elif same_line_body:
+        # Single-statement then-body on the same line: if (cond) stmt;
+        then_steps = [_classify_action(same_line_body)]
     else:
         then_steps, index = _parse_branch_body(lines, index)
 
     else_steps: tuple[ControlFlowStep, ...] = ()
-    # Skip any 'end' lines and look for 'else'
-    while index < len(lines) and lines[index].lower().startswith("end"):
-        index += 1
+    # Skip any 'end' lines and look for 'else' — only when the then-body
+    # was a begin/end block.  For single-statement then-bodies (no begin),
+    # the 'end' belongs to an enclosing block and must not be consumed.
+    if has_begin_on_same_line:
+        while index < len(lines) and lines[index].lower().startswith("end"):
+            index += 1
     if index < len(lines) and lines[index].lower().startswith("else"):
         else_line = lines[index]
         if else_line.lower().startswith("else if "):
