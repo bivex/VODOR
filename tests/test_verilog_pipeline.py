@@ -1446,6 +1446,18 @@ class TestNewSmellDetectors:
         multi = [s for s in module_smells if s.kind == SmellKind.MULTI_DRIVER_SIGNAL]
         assert len(multi) == 0
 
+    def test_no_multi_driver_initial_plus_always(self) -> None:
+        """initial + always driving same signal is not a multi-driver error."""
+        source = "\n".join([
+            "module top;",
+            "initial begin x <= 0; end",
+            "always @(posedge clk) begin x <= 1; end",
+            "endmodule",
+        ])
+        _, module_smells = self._extract(source)
+        multi = [s for s in module_smells if s.kind == SmellKind.MULTI_DRIVER_SIGNAL]
+        assert len(multi) == 0
+
     # S15: Incomplete sensitivity
     def test_incomplete_sensitivity_detected(self) -> None:
         source = "\n".join([
@@ -1489,6 +1501,23 @@ class TestNewSmellDetectors:
         dup = [s for s in smells if s.kind == SmellKind.DUPLICATE_CASE_LABEL]
         assert len(dup) >= 1
         assert dup[0].severity == SmellSeverity.ERROR
+
+    def test_bus_index_case_label_not_false_positive(self) -> None:
+        """Case labels with bus indices like [31:0] should not be split at the colon."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (sel)",
+            "xgmii_rxd_next[31:0]: out <= a;",
+            "xgmii_rxd_next[63:32]: out <= b;",
+            "default: out <= 0;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        dup = [s for s in smells if s.kind == SmellKind.DUPLICATE_CASE_LABEL]
+        assert len(dup) == 0
 
     # S17: Forever without disable
     def test_forever_without_disable_detected(self) -> None:

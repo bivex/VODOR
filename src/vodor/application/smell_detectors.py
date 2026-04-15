@@ -107,8 +107,11 @@ def detect_module_smells(diagram: ControlFlowDiagram) -> list[Smell]:
     smells: list[Smell] = []
 
     # S14: Multi-driver signal
+    # Exclude initial blocks — they don't create hardware drivers, only simulation init values
     var_to_functions: dict[str, list[str]] = {}
     for func in diagram.functions:
+        if func.name.startswith("initial"):
+            continue
         assigned = _collect_assigned_vars(func.steps)
         for var in assigned:
             var_to_functions.setdefault(var, []).append(func.name)

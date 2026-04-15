@@ -654,7 +654,7 @@ def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
             break
 
         if _is_case_label_line(current):
-            label, _, after_colon = current.partition(":")
+            label, _, after_colon = _split_case_label(current)
             label = label.strip()
             after_colon = after_colon.strip().removesuffix(";").strip()
             index += 1
@@ -866,6 +866,19 @@ def _extract_after_parenthesized(text: str) -> str:
         return ""
     after = text[close_index + 1 :].strip().removesuffix(";").strip()
     return after
+
+
+def _split_case_label(line: str) -> tuple[str, str, str]:
+    """Split a case label line into (label, ':', after_colon), handling bus indices like [31:0]."""
+    depth = 0
+    for i, ch in enumerate(line):
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        elif ch == ":" and depth == 0:
+            return line[:i], ":", line[i + 1:]
+    return line.partition(":")
 
 
 def _is_case_label_line(line: str) -> bool:
