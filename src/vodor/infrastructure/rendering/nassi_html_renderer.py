@@ -342,12 +342,14 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
       .action-badge-tsk {{ background: #2a1d41; color: #c4a7ff; border: 1px solid #3e2d5e; }}
       .action-badge-evt {{ background: #11343b; color: #56d4dd; border: 1px solid #1a4e57; }}
       .action-badge-pca {{ background: #371925; color: #ff93a9; border: 1px solid #5a2840; }}
+      .action-badge-ca  {{ background: #1a2a1e; color: #6ddfa0; border: 1px solid #2a4a32; }}
       .ns-action-ba  {{ border-left: 3px solid #a6da95; }}
       .ns-action-nba {{ border-left: 3px solid #82aaff; }}
       .ns-action-sys {{ border-left: 3px solid #ffb86b; }}
       .ns-action-tsk {{ border-left: 3px solid #c4a7ff; }}
       .ns-action-evt {{ border-left: 3px solid #56d4dd; }}
       .ns-action-pca {{ border-left: 3px solid #ff93a9; }}
+      .ns-action-ca  {{ border-left: 3px solid #6ddfa0; }}
       /* ── Struct panel ── */
       .struct-body {{ padding: 12px; }}
       .struct-section {{ margin-bottom: 14px; }}
@@ -769,6 +771,7 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
         <span class="legend-item"><span class="legend-swatch" style="background:#c4a7ff"></span><code>call</code> Task enable</span>
         <span class="legend-item"><span class="legend-swatch" style="background:#56d4dd"></span><code>&rarr;</code> Event trigger</span>
         <span class="legend-item"><span class="legend-swatch" style="background:#ff93a9"></span><code>pca</code> Proc. continuous</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#6ddfa0"></span><code>ca</code> Continuous assign</span>
       </div>
       <main class="viewer-body">{sections}</main>
     </div>
@@ -951,6 +954,8 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
                 return "ns-action-evt", '<span class="action-badge action-badge-evt">&rarr;</span>'
             case ActionKind.PROCEDURAL_CONTINUOUS:
                 return "ns-action-pca", '<span class="action-badge action-badge-pca">pca</span>'
+            case ActionKind.CONTINUOUS_ASSIGN:
+                return "ns-action-ca", '<span class="action-badge action-badge-ca">ca</span>'
             case _:
                 return "", ""
 

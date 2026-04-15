@@ -13,6 +13,7 @@ class ActionKind(Enum):
     TASK_CALL = "task_call"
     EVENT_TRIGGER = "event_trigger"
     PROCEDURAL_CONTINUOUS = "procedural_continuous"
+    CONTINUOUS_ASSIGN = "continuous_assign"
     OTHER = "other"
 
 

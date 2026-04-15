@@ -836,7 +836,9 @@ def _scan_top_level_actions(
         inside = any(s >= ex_start and e <= ex_end for (ex_start, ex_end) in excluded)
         if not inside:
             stmt = match.group().strip().removesuffix(";").strip()
-            actions.append(ActionFlowStep(stmt, _classify_kind(stmt)))
+            # Module-level assign/force/release are continuous assignments,
+            # not procedural continuous (which is assign/deassign/force/release inside always blocks)
+            actions.append(ActionFlowStep(stmt, ActionKind.CONTINUOUS_ASSIGN))
     return actions
 
 
