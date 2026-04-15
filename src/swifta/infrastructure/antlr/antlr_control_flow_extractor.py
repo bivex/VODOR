@@ -87,6 +87,8 @@ class BasicVerilogCFGListener(ParseTreeListener):
             self._handle_nonblocking_enter(ctx)
         elif rule_index == VerilogParser.RULE_blocking_assignment:
             self._handle_blocking_enter(ctx)
+        elif rule_index == VerilogParser.RULE_loop_statement:
+            self._handle_loop_statement_enter(ctx)
         # Note: struct handling is primarily a Swift/software concept
         # For Verilog, we'd look for parameter definitions or similar constructs
 
@@ -104,6 +106,17 @@ class BasicVerilogCFGListener(ParseTreeListener):
         return VerilogParser.ruleNames[ctx.getRuleIndex()] if ctx.getRuleIndex() >= 0 else "unknown"
 
     # --- Verilog-specific handlers ---
+
+    def _handle_loop_statement_enter(self, ctx):
+        """Handle loop statements (forever, repeat)."""
+        loop_text = ctx.getText()
+        # Simple handling: treat as an action step
+        # A full implementation would distinguish forever vs repeat
+        self.current_function_name = "loop_block"
+        self.current_function_signature = "loop"
+        self.current_statements = []
+        self.current_statements.append(ActionFlowStep(loop_text))
+        print(f"DEBUG: Started collecting loop: {loop_text}")
 
     def _handle_always_enter(self, ctx):
         """Handle always blocks."""
