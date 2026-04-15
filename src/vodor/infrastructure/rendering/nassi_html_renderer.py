@@ -341,6 +341,39 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
       .ns-action-tsk {{ border-left: 3px solid #c4a7ff; }}
       .ns-action-evt {{ border-left: 3px solid #56d4dd; }}
       .ns-action-pca {{ border-left: 3px solid #ff93a9; }}
+      /* ── Legend ── */
+      .legend {{
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border-soft);
+        background:
+          linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0)),
+          var(--surface);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        align-items: center;
+      }}
+      .legend-title {{
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin-right: 4px;
+      }}
+      .legend-item {{
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        color: var(--muted);
+      }}
+      .legend-swatch {{
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }}
       /* ── Block type colours ── */
       .ns-guard   {{ background: var(--guard-fill); }}
       .ns-loop,
@@ -635,6 +668,15 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
       <div class="toolbar">
         <span class="toolbar-label">Nassi-Shneiderman</span>
         <code class="toolbar-path">{escape(diagram.source_location)}</code>
+      </div>
+      <div class="legend">
+        <span class="legend-title">Legend</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#a6da95"></span><code>=</code> Blocking</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#82aaff"></span><code>&lt;=</code> Nonblocking</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#ffb86b"></span><code>$</code> System task</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#c4a7ff"></span><code>call</code> Task enable</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#56d4dd"></span><code>&rarr;</code> Event trigger</span>
+        <span class="legend-item"><span class="legend-swatch" style="background:#ff93a9"></span><code>pca</code> Proc. continuous</span>
       </div>
       <main class="viewer-body">{sections}</main>
     </div>
