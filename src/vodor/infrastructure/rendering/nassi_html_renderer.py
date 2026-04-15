@@ -11,6 +11,7 @@ from vodor.domain.control_flow import (
     ActionKind,
     ControlFlowDiagram,
     ControlFlowStep,
+    Declaration,
     DeferFlowStep,
     DelayFlowStep,
     DisableFlowStep,
@@ -19,8 +20,12 @@ from vodor.domain.control_flow import (
     ForeverFlowStep,
     ForkJoinFlowStep,
     ForInFlowStep,
+    GenerateBlock,
     GuardFlowStep,
     IfFlowStep,
+    ModuleInstantiation,
+    ModuleStructure,
+    PortDeclaration,
     RepeatWhileFlowStep,
     StructDeclarationFlowStep,
     StructFieldAccessFlowStep,
@@ -55,6 +60,8 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
 
     def render(self, diagram: ControlFlowDiagram) -> str:
         sections = ""
+        if diagram.module_structure:
+            sections += self._render_module_structure(diagram.module_structure)
         if diagram.top_level_steps:
             sections += self._render_top_level(diagram.top_level_steps)
         sections += "".join(self._render_function(function) for function in diagram.functions)
@@ -341,6 +348,91 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
       .ns-action-tsk {{ border-left: 3px solid #c4a7ff; }}
       .ns-action-evt {{ border-left: 3px solid #56d4dd; }}
       .ns-action-pca {{ border-left: 3px solid #ff93a9; }}
+      /* ── Struct panel ── */
+      .struct-body {{ padding: 12px; }}
+      .struct-section {{ margin-bottom: 14px; }}
+      .struct-section:last-child {{ margin-bottom: 0; }}
+      .struct-section-title {{
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin-bottom: 6px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--border-soft);
+      }}
+      .struct-table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-family: var(--mono);
+        font-size: 12px;
+      }}
+      .struct-table th {{
+        text-align: left;
+        padding: 4px 10px;
+        background: var(--surface-3);
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        border-bottom: 1px solid var(--border-strong);
+      }}
+      .struct-table td {{
+        padding: 4px 10px;
+        border-bottom: 1px solid var(--border-soft);
+        color: var(--text-bright);
+      }}
+      .struct-dir {{ font-weight: 600; }}
+      .struct-dir-input {{ color: var(--green); }}
+      .struct-dir-output {{ color: var(--blue); }}
+      .struct-dir-inout {{ color: var(--amber); }}
+      .struct-decl-item {{
+        display: flex;
+        gap: 8px;
+        padding: 3px 0;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text-bright);
+      }}
+      .struct-decl-kind {{
+        font-weight: 600;
+        min-width: 80px;
+      }}
+      .struct-decl-kind-wire {{ color: var(--green); }}
+      .struct-decl-kind-reg {{ color: var(--blue); }}
+      .struct-decl-kind-integer {{ color: var(--purple); }}
+      .struct-decl-kind-parameter {{ color: var(--orange); }}
+      .struct-decl-kind-localparam {{ color: var(--orange); }}
+      .struct-decl-width {{ color: var(--muted); }}
+      .struct-decl-value {{ color: var(--teal); }}
+      .struct-inst-card {{
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        overflow: hidden;
+        margin-bottom: 8px;
+      }}
+      .struct-inst-card:last-child {{ margin-bottom: 0; }}
+      .struct-inst-head {{
+        padding: 6px 10px;
+        background: var(--surface-3);
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-bright);
+      }}
+      .struct-inst-mod {{ color: var(--purple); }}
+      .struct-inst-name {{ color: var(--teal); }}
+      .struct-gen-item {{
+        padding: 4px 10px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--text-bright);
+        border-left: 3px solid var(--amber);
+        margin-bottom: 4px;
+      }}
+      .struct-gen-label {{ color: var(--amber); font-weight: 600; }}
       /* ── Legend ── */
       .legend {{
         padding: 10px 16px;
@@ -700,6 +792,126 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
             f"{self._render_sequence(function.steps, depth=0)}"
             "</div>"
             "</section>"
+        )
+
+    def _render_module_structure(self, structure: ModuleStructure) -> str:
+        body_parts: list[str] = []
+        if structure.ports:
+            body_parts.append(self._render_ports_table(structure.ports))
+        if structure.declarations:
+            body_parts.append(self._render_declarations_list(structure.declarations))
+        if structure.instantiations:
+            body_parts.append(self._render_instantiations(structure.instantiations))
+        if structure.generate_blocks:
+            body_parts.append(self._render_generate_blocks(structure.generate_blocks))
+        if not body_parts:
+            return ""
+
+        body_html = "\n".join(body_parts)
+        return (
+            '<section class="function-panel">'
+            '<div class="function-head">'
+            f'<h2 class="function-title">{escape(structure.name)}</h2>'
+            f'<div class="function-signature">module {escape(structure.name)}'
+            f" ({len(structure.ports)} ports, {len(structure.declarations)} decls)"
+            "</div>"
+            '<div class="function-meta"><span class="kind-badge">STRUCTURE</span></div>'
+            "</div>"
+            f'<div class="struct-body">{body_html}</div>'
+            "</section>"
+        )
+
+    def _render_ports_table(self, ports: tuple[PortDeclaration, ...]) -> str:
+        rows = ""
+        for p in ports:
+            dir_cls = f"struct-dir struct-dir-{p.direction}"
+            kind_text = p.kind or "wire"
+            width_text = p.width or ""
+            rows += (
+                f"<tr>"
+                f'<td class="{dir_cls}">{escape(p.direction)}</td>'
+                f"<td>{escape(kind_text)}</td>"
+                f"<td>{escape(width_text)}</td>"
+                f"<td><strong>{escape(p.name)}</strong></td>"
+                f"</tr>"
+            )
+        return (
+            '<div class="struct-section">'
+            '<div class="struct-section-title">Ports</div>'
+            '<table class="struct-table">'
+            "<tr><th>Dir</th><th>Type</th><th>Width</th><th>Name</th></tr>"
+            f"{rows}"
+            "</table>"
+            "</div>"
+        )
+
+    def _render_declarations_list(self, decls: tuple[Declaration, ...]) -> str:
+        items = ""
+        for d in decls:
+            kind_cls = f"struct-decl-kind struct-decl-kind-{d.kind}"
+            width_html = f'<span class="struct-decl-width">{escape(d.width)}</span>' if d.width else ""
+            value_html = f' = <span class="struct-decl-value">{escape(d.value)}</span>' if d.value else ""
+            items += (
+                f'<div class="struct-decl-item">'
+                f'<span class="{kind_cls}">{escape(d.kind)}</span>'
+                f"{width_html} "
+                f"<strong>{escape(d.name)}</strong>"
+                f"{value_html}"
+                "</div>"
+            )
+        return (
+            '<div class="struct-section">'
+            '<div class="struct-section-title">Declarations</div>'
+            f"{items}"
+            "</div>"
+        )
+
+    def _render_instantiations(self, insts: tuple[ModuleInstantiation, ...]) -> str:
+        cards = ""
+        for inst in insts:
+            conn_rows = ""
+            for c in inst.connections:
+                conn_rows += (
+                    f"<tr>"
+                    f"<td>{escape(c.port_name)}</td>"
+                    f"<td>{escape(c.signal)}</td>"
+                    f"</tr>"
+                )
+            cards += (
+                '<div class="struct-inst-card">'
+                '<div class="struct-inst-head">'
+                f'<span class="struct-inst-mod">{escape(inst.module_name)}</span> '
+                f'<span class="struct-inst-name">{escape(inst.instance_name)}</span>'
+                "</div>"
+                '<div style="padding: 4px 8px">'
+                '<table class="struct-table">'
+                f"<tr><th>Port</th><th>Signal</th></tr>{conn_rows}"
+                "</table>"
+                "</div>"
+                "</div>"
+            )
+        return (
+            '<div class="struct-section">'
+            '<div class="struct-section-title">Instantiations</div>'
+            f"{cards}"
+            "</div>"
+        )
+
+    def _render_generate_blocks(self, gens: tuple[GenerateBlock, ...]) -> str:
+        items = ""
+        for g in gens:
+            label_html = f'<span class="struct-gen-label">{escape(g.label)}</span> ' if g.label else ""
+            items += (
+                f'<div class="struct-gen-item">'
+                f"{label_html}"
+                f'<span>{escape(g.kind)} ({escape(g.condition)})</span>'
+                "</div>"
+            )
+        return (
+            '<div class="struct-section">'
+            '<div class="struct-section-title">Generate</div>'
+            f"{items}"
+            "</div>"
         )
 
     def _render_top_level(self, steps: tuple[ControlFlowStep, ...]) -> str:

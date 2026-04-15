@@ -150,7 +150,53 @@ class FunctionControlFlow:
 
 
 @dataclass(frozen=True, slots=True)
+class PortDeclaration:
+    direction: str  # "input", "output", "inout"
+    kind: str  # "wire", "reg", ""
+    name: str
+    width: str | None  # "[7:0]"
+
+
+@dataclass(frozen=True, slots=True)
+class Declaration:
+    kind: str  # "wire", "reg", "integer", "parameter", "localparam"
+    name: str
+    width: str | None
+    value: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PortConnection:
+    port_name: str
+    signal: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleInstantiation:
+    module_name: str
+    instance_name: str
+    connections: tuple[PortConnection, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class GenerateBlock:
+    label: str | None
+    kind: str  # "for" or "if"
+    condition: str
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleStructure:
+    name: str
+    ports: tuple[PortDeclaration, ...]
+    declarations: tuple[Declaration, ...]
+    instantiations: tuple[ModuleInstantiation, ...]
+    generate_blocks: tuple[GenerateBlock, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ControlFlowDiagram:
     source_location: str
     functions: tuple[FunctionControlFlow, ...]
     top_level_steps: tuple[ControlFlowStep, ...] = ()
+    module_structure: ModuleStructure | None = None

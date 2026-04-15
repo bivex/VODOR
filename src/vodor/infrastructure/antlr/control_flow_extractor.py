@@ -10,6 +10,7 @@ from vodor.domain.control_flow import (
     ActionKind,
     ControlFlowDiagram,
     ControlFlowStep,
+    Declaration,
     DeferFlowStep,
     DelayFlowStep,
     DisableFlowStep,
@@ -18,7 +19,12 @@ from vodor.domain.control_flow import (
     ForInFlowStep,
     ForeverFlowStep,
     FunctionControlFlow,
+    GenerateBlock,
     IfFlowStep,
+    ModuleInstantiation,
+    ModuleStructure,
+    PortConnection,
+    PortDeclaration,
     RepeatWhileFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
@@ -45,6 +51,7 @@ class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
         cleaned = _strip_comments(source_unit.content)
         blocks = _scan_procedural_blocks_impl(cleaned)
         top_actions = _scan_top_level_actions(cleaned, blocks)
+        module_structure = _scan_module_structure(cleaned, blocks)
 
         functions = tuple(
             FunctionControlFlow(
@@ -60,6 +67,7 @@ class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
             source_location=source_unit.location,
             functions=functions,
             top_level_steps=tuple(top_actions),
+            module_structure=module_structure,
         )
 
 
@@ -908,6 +916,350 @@ def _classify_kind(clean: str) -> ActionKind:
         return ActionKind.TASK_CALL
 
     return ActionKind.OTHER
+
+
+# ── Module structure scanning ──
+
+_VERILOG_KEYWORDS = frozenset({
+    "always", "and", "assign", "automatic", "begin", "buf", "bufif0", "bufif1",
+    "case", "casex", "casez", "cmos", "deassign", "default", "defparam", "disable",
+    "edge", "else", "end", "endcase", "endfunction", "endgenerate", "endmodule",
+    "endprimitive", "endspecify", "endtable", "endtask", "event", "for", "force",
+    "forever", "fork", "function", "generate", "genvar", "highz0", "highz1",
+    "if", "ifnone", "initial", "inout", "input", "integer", "join", "join_any",
+    "join_none", "large", "localparam", "macromodule", "medium", "module", "nand",
+    "negedge", "nmos", "nor", "not", "notif0", "notif1", "or", "output",
+    "parameter", "pmos", "posedge", "primitive", "pull0", "pull1", "pulldown",
+    "pullup", "rcmos", "real", "realtime", "reg", "release", "repeat", "rnmos",
+    "rpmos", "rtran", "rtranif0", "rtranif1", "scalared", "signed", "small",
+    "specify", "specparam", "strength", "strong0", "strong1", "supply0", "supply1",
+    "table", "task", "time", "tran", "tranif0", "tranif1", "tri", "tri0", "tri1",
+    "triand", "trior", "trireg", "unsigned", "vectored", "wait", "wand", "weak0",
+    "weak1", "while", "wire", "wor", "xnor", "xor",
+})
+
+
+def _scan_module_structure(
+    cleaned_text: str,
+    blocks: tuple[_BlockSlice, ...],
+) -> ModuleStructure | None:
+    header = _parse_module_header(cleaned_text)
+    if header is None:
+        return None
+    name, ports, header_end = header
+
+    excluded = sorted(
+        [(b.start, b.end) for b in blocks] + [(0, header_end)],
+        key=lambda x: x[0],
+    )
+    port_names = {p.name for p in ports}
+
+    declarations = _scan_declarations(cleaned_text, excluded, port_names)
+    instantiations = _scan_module_instantiations(cleaned_text, excluded)
+    generate_blocks = _scan_generate_blocks(cleaned_text, excluded)
+
+    return ModuleStructure(
+        name=name,
+        ports=ports,
+        declarations=declarations,
+        instantiations=instantiations,
+        generate_blocks=generate_blocks,
+    )
+
+
+def _parse_module_header(
+    cleaned_text: str,
+) -> tuple[str, tuple[PortDeclaration, ...], int] | None:
+    m = re.search(r"\bmodule\s+(\w+)", cleaned_text)
+    if m is None:
+        return None
+    name = m.group(1)
+
+    # Find the port list opening paren, skipping optional #(...) parameter list
+    after_name = m.end()
+    rest = cleaned_text[after_name:]
+    # Check for #( parameter override
+    param_match = re.match(r"\s*#\s*\(", rest)
+    if param_match:
+        # Skip the parameter list
+        param_paren_end = _find_matching_paren(cleaned_text, after_name + param_match.end() - 1)
+        if param_paren_end != -1:
+            paren_start = cleaned_text.find("(", param_paren_end + 1)
+        else:
+            paren_start = -1
+    else:
+        paren_start = cleaned_text.find("(", after_name)
+    if paren_start == -1:
+        # Module with no ports: module name; ... endmodule
+        semi = cleaned_text.find(";", after_name)
+        header_end = semi + 1 if semi != -1 else after_name
+        return name, (), header_end
+
+    # Find matching closing paren
+    paren_end = _find_matching_paren(cleaned_text, paren_start)
+    if paren_end == -1:
+        semi = cleaned_text.find(";", paren_start)
+        header_end = semi + 1 if semi != -1 else paren_start + 1
+        return name, (), header_end
+
+    port_text = cleaned_text[paren_start + 1 : paren_end].strip()
+    header_end = cleaned_text.find(";", paren_end) + 1
+
+    if not port_text:
+        return name, (), header_end
+
+    ports = _parse_port_list(port_text)
+    return name, ports, header_end
+
+
+def _find_matching_paren(text: str, open_index: int) -> int:
+    depth = 1
+    index = open_index + 1
+    while index < len(text):
+        ch = text[index]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return -1
+
+
+def _parse_port_list(port_text: str) -> tuple[PortDeclaration, ...]:
+    ports: list[PortDeclaration] = []
+    # Split by commas respecting nested brackets
+    segments = _split_respecting_brackets(port_text)
+
+    current_direction = "wire"
+    current_kind = ""
+
+    for seg in segments:
+        seg = seg.strip()
+        if not seg:
+            continue
+
+        # Try ANSI-style: direction [kind] [width] name
+        ansi_match = re.match(
+            r"(input|output|inout)\s+(reg\s+|wire\s+)?"
+            r"(\[[^\]]*\])?\s*"
+            r"(\w+)",
+            seg,
+            re.IGNORECASE,
+        )
+        if ansi_match:
+            current_direction = ansi_match.group(1).lower()
+            kind_part = ansi_match.group(2)
+            if kind_part:
+                current_kind = kind_part.strip().lower()
+            else:
+                current_kind = ""
+            width = ansi_match.group(3)
+            port_name = ansi_match.group(4)
+            ports.append(PortDeclaration(
+                direction=current_direction,
+                kind=current_kind,
+                name=port_name,
+                width=width,
+            ))
+            continue
+
+        # Try simple identifier (non-ANSI or continuation)
+        simple_match = re.match(r"(input|output|inout)\s+(\[[^\]]*\])?\s*(\w+)", seg, re.IGNORECASE)
+        if simple_match:
+            current_direction = simple_match.group(1).lower()
+            width = simple_match.group(2)
+            port_name = simple_match.group(3)
+            ports.append(PortDeclaration(
+                direction=current_direction, kind="", name=port_name, width=width,
+            ))
+            continue
+
+        # Bare name (continuation of previous direction)
+        bare_match = re.match(r"(\[[^\]]*\])?\s*(\w+)$", seg.strip())
+        if bare_match:
+            width = bare_match.group(1)
+            port_name = bare_match.group(2)
+            ports.append(PortDeclaration(
+                direction=current_direction, kind="", name=port_name, width=width,
+            ))
+
+    return tuple(ports)
+
+
+def _split_respecting_brackets(text: str) -> list[str]:
+    """Split by commas, but skip commas inside [...]."""
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(ch)
+    if current:
+        parts.append("".join(current))
+    return parts
+
+
+def _scan_declarations(
+    cleaned_text: str,
+    excluded: list[tuple[int, int]],
+    port_names: set[str],
+) -> tuple[Declaration, ...]:
+    declarations: list[Declaration] = []
+
+    # parameter/localparam
+    param_pattern = re.compile(
+        r"\b(parameter|localparam)\s+(?:\[/[^;]*?\]\s+)?(\[[^\]]*\])?\s*"
+        r"(\w+)\s*=\s*([^;]+);",
+        re.IGNORECASE,
+    )
+    for m in param_pattern.finditer(cleaned_text):
+        if _inside_excluded(m.start(), m.end(), excluded):
+            continue
+        name = m.group(3)
+        if name in port_names:
+            continue
+        declarations.append(Declaration(
+            kind=m.group(1).lower(),
+            name=name,
+            width=m.group(2),
+            value=m.group(4).strip(),
+        ))
+
+    # wire/reg/integer
+    decl_pattern = re.compile(
+        r"\b(wire|reg|integer)\s+(\[[^\]]*\])?\s*"
+        r"(\w+)"
+        r"(?:\s*\[[^\]]*\])?"  # memory dimension — skip
+        r"\s*(?:=\s*([^;]+))?\s*;",
+        re.IGNORECASE,
+    )
+    for m in decl_pattern.finditer(cleaned_text):
+        if _inside_excluded(m.start(), m.end(), excluded):
+            continue
+        name = m.group(3)
+        if name in port_names:
+            continue
+        # Skip if this name was already captured as a parameter
+        if any(d.name == name for d in declarations):
+            continue
+        declarations.append(Declaration(
+            kind=m.group(1).lower(),
+            name=name,
+            width=m.group(2),
+            value=m.group(4).strip() if m.group(4) else None,
+        ))
+
+    return tuple(declarations)
+
+
+def _inside_excluded(
+    start: int, end: int, excluded: list[tuple[int, int]]
+) -> bool:
+    return any(start >= ex_start and end <= ex_end for ex_start, ex_end in excluded)
+
+
+def _scan_module_instantiations(
+    cleaned_text: str,
+    excluded: list[tuple[int, int]],
+) -> tuple[ModuleInstantiation, ...]:
+    instantiations: list[ModuleInstantiation] = []
+
+    # Match: module_name [#(...)] instance_name (
+    candidate_pattern = re.compile(
+        r"\b([a-zA-Z_]\w*)\s+"
+        r"(?:#\s*\([^;]*?\)\s+)?"  # optional parameter override
+        r"([a-zA-Z_]\w*)\s*\(",
+        re.DOTALL,
+    )
+    for m in candidate_pattern.finditer(cleaned_text):
+        mod_name = m.group(1)
+        inst_name = m.group(2)
+
+        # Filter out keywords
+        if mod_name.lower() in _VERILOG_KEYWORDS or inst_name.lower() in _VERILOG_KEYWORDS:
+            continue
+        if _inside_excluded(m.start(), m.end(), excluded):
+            continue
+
+        # Find the port connection list
+        paren_start = m.end() - 1  # the opening (
+        paren_end = _find_matching_paren(cleaned_text, paren_start)
+        if paren_end == -1:
+            continue
+
+        conn_text = cleaned_text[paren_start + 1 : paren_end]
+        connections = _parse_port_connections(conn_text)
+
+        instantiations.append(ModuleInstantiation(
+            module_name=mod_name,
+            instance_name=inst_name,
+            connections=connections,
+        ))
+
+    return tuple(instantiations)
+
+
+def _parse_port_connections(text: str) -> tuple[PortConnection, ...]:
+    connections: list[PortConnection] = []
+    for m in re.finditer(r"\.(\w+)\s*\(([^)]*)\)", text):
+        connections.append(PortConnection(
+            port_name=m.group(1),
+            signal=m.group(2).strip(),
+        ))
+    return tuple(connections)
+
+
+def _scan_generate_blocks(
+    cleaned_text: str,
+    excluded: list[tuple[int, int]],
+) -> tuple[GenerateBlock, ...]:
+    blocks: list[GenerateBlock] = []
+
+    gen_pattern = re.compile(r"\bgenerate\b", re.IGNORECASE)
+    endgen_pattern = re.compile(r"\bendgenerate\b", re.IGNORECASE)
+
+    for gen_match in gen_pattern.finditer(cleaned_text):
+        if _inside_excluded(gen_match.start(), gen_match.end(), excluded):
+            continue
+        end_match = endgen_pattern.search(cleaned_text, gen_match.end())
+        if end_match is None:
+            continue
+
+        body = cleaned_text[gen_match.end() : end_match.start()]
+
+        # for-generate
+        for_m = re.finditer(
+            r"\bfor\s*\(([^)]+)\)\s*begin\s*(?::\s*(\w+))?",
+            body, re.IGNORECASE,
+        )
+        for fm in for_m:
+            blocks.append(GenerateBlock(
+                label=fm.group(2),
+                kind="for",
+                condition=fm.group(1).strip(),
+            ))
+
+        # if-generate
+        for im in re.finditer(
+            r"\bif\s*\(([^)]+)\)\s*begin\s*(?::\s*(\w+))?",
+            body, re.IGNORECASE,
+        ):
+            blocks.append(GenerateBlock(
+                label=im.group(2),
+                kind="if",
+                condition=im.group(1).strip(),
+            ))
+
+    return tuple(blocks)
 
 
 # Backward-compatible alias for downstream imports during migration.
