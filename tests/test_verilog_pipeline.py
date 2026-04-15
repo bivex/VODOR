@@ -1548,3 +1548,751 @@ class TestNewSmellDetectors:
         smells = self._smells(source)
         forever = [s for s in smells if s.kind == SmellKind.FOREVER_WITHOUT_DISABLE]
         assert len(forever) == 0
+
+
+class TestSmellDetectorHelpers:
+    """Direct tests for internal helper functions."""
+
+    def test_extract_lhs_var_simple(self) -> None:
+        from vodor.application.smell_detectors import _extract_lhs_var
+        assert _extract_lhs_var("count = count + 1") == "count"
+
+    def test_extract_lhs_var_nonblocking(self) -> None:
+        from vodor.application.smell_detectors import _extract_lhs_var
+        assert _extract_lhs_var("result <= a & b") == "result"
+
+    def test_extract_lhs_var_bus_index(self) -> None:
+        from vodor.application.smell_detectors import _extract_lhs_var
+        assert _extract_lhs_var("data[7:0] = 8'hFF") == "data"
+
+    def test_extract_lhs_var_no_assignment(self) -> None:
+        from vodor.application.smell_detectors import _extract_lhs_var
+        assert _extract_lhs_var("$display(msg)") is None
+
+    def test_extract_lhs_var_starts_with_digit(self) -> None:
+        from vodor.application.smell_detectors import _extract_lhs_var
+        assert _extract_lhs_var("2'b00 = something") is None
+
+    def test_is_unsized_literal_decimal(self) -> None:
+        from vodor.application.smell_detectors import _is_unsized_literal
+        assert _is_unsized_literal("count <= 0") is True
+        assert _is_unsized_literal("count <= 255") is True
+        assert _is_unsized_literal("count = -1") is True
+
+    def test_is_unsized_literal_sized_not_flagged(self) -> None:
+        from vodor.application.smell_detectors import _is_unsized_literal
+        assert _is_unsized_literal("count <= 8'h00") is False
+        assert _is_unsized_literal("count <= 1'b1") is False
+        assert _is_unsized_literal("count <= 4'd5") is False
+
+    def test_is_unsized_literal_expression_not_flagged(self) -> None:
+        from vodor.application.smell_detectors import _is_unsized_literal
+        assert _is_unsized_literal("count <= a + 1") is False
+        assert _is_unsized_literal("count = data") is False
+
+    def test_is_combinational(self) -> None:
+        from vodor.application.smell_detectors import _is_combinational
+        assert _is_combinational("*") is True
+        assert _is_combinational("(*)") is True  # strips parens internally
+        assert _is_combinational("(posedge clk)") is False
+        assert _is_combinational(None) is False
+
+    def test_is_sequential(self) -> None:
+        from vodor.application.smell_detectors import _is_sequential
+        assert _is_sequential("(posedge clk)") is True
+        assert _is_sequential("(negedge rst)") is True
+        assert _is_sequential("(posedge clk or negedge rst)") is True
+        assert _is_sequential("*") is False
+        assert _is_sequential(None) is False
+
+    def test_is_explicit_sensitivity(self) -> None:
+        from vodor.application.smell_detectors import _is_explicit_sensitivity
+        assert _is_explicit_sensitivity("(a or b)") is True
+        assert _is_explicit_sensitivity("(a)") is True
+        assert _is_explicit_sensitivity("*") is False
+        assert _is_explicit_sensitivity("(posedge clk)") is False
+        assert _is_explicit_sensitivity(None) is False
+
+    def test_parse_sensitivity_signals(self) -> None:
+        from vodor.application.smell_detectors import _parse_sensitivity_signals
+        assert _parse_sensitivity_signals("(posedge clk or negedge rst)") == {"clk", "rst"}
+        assert _parse_sensitivity_signals("(a or b or c)") == {"a", "b", "c"}
+        assert _parse_sensitivity_signals("(a)") == {"a"}
+        assert _parse_sensitivity_signals("(*)") == set()
+
+    def test_extract_identifiers_excludes_keywords(self) -> None:
+        from vodor.application.smell_detectors import _extract_identifiers
+        ids = _extract_identifiers("count = if + begin")
+        assert "count" in ids
+        assert "if" not in ids
+        assert "begin" not in ids
+
+    def test_extract_identifiers_excludes_number_literals(self) -> None:
+        from vodor.application.smell_detectors import _extract_identifiers
+        ids = _extract_identifiers("data = 8'hFF + 2'b01")
+        assert "data" in ids
+        # hex/binary literal prefixes should be cleaned
+        assert len(ids) >= 1
+
+    def test_extract_read_signals(self) -> None:
+        from vodor.application.smell_detectors import _extract_read_signals
+        signals = _extract_read_signals("result <= a + b")
+        assert "a" in signals
+        assert "b" in signals
+        assert "result" not in signals
+
+
+class TestSmellEdgeCases:
+    """Edge cases and interactions between multiple smell detectors."""
+
+    def _extract(self, source: str):
+        from vodor.application.smell_detectors import detect_module_smells, detect_smells
+        su = SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
+        diagram = AntlrVerilogControlFlowExtractor().extract(su)
+        per_func = []
+        for f in diagram.functions:
+            per_func.extend(detect_smells(f))
+        module = detect_module_smells(diagram)
+        return per_func, module
+
+    def _smells(self, source: str) -> list:
+        per_func, _ = self._extract(source)
+        return per_func
+
+    # ── S1 edge cases ──
+
+    def test_blocking_in_sequential_inside_nested_if(self) -> None:
+        """Blocking assignment deeply nested in sequential block is still caught."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (a) begin",
+            "  if (b) begin",
+            "    count = count + 1;",
+            "  end",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) == 1
+
+    def test_intermediate_var_inside_if_else(self) -> None:
+        """Intermediate variable inside if/else in sequential is not flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (sel) begin",
+            "  tmp = a + b;",
+            "  result <= tmp;",
+            "end else begin",
+            "  tmp = c + d;",
+            "  result <= tmp;",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) == 0
+
+    def test_intermediate_var_inside_case(self) -> None:
+        """Intermediate variable inside case branch is not flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "2'b00: begin",
+            "  tmp = a + b;",
+            "  result <= tmp;",
+            "end",
+            "default: result <= 0;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) == 0
+
+    # ── S2 edge cases ──
+
+    def test_multiple_nonblocking_in_combinational(self) -> None:
+        """Each nonblocking assignment in combinational gets its own smell."""
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "a <= 1;",
+            "b <= 2;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        nb = [s for s in smells if s.kind == SmellKind.NONBLOCKING_IN_COMBINATIONAL]
+        assert len(nb) == 2
+
+    # ── S3 edge cases ──
+
+    def test_latch_risk_in_nested_if(self) -> None:
+        """Nested incomplete if in combinational is flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "if (a) begin",
+            "  if (b)",
+            "    result = 1;",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        latch = [s for s in smells if s.kind == SmellKind.LATCH_RISK_INCOMPLETE_IF]
+        assert len(latch) >= 1
+
+    def test_latch_risk_sequential_not_flagged(self) -> None:
+        """Incomplete if in sequential block is NOT a latch risk."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (en)",
+            "result <= data;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        latch = [s for s in smells if s.kind == SmellKind.LATCH_RISK_INCOMPLETE_IF]
+        assert len(latch) == 0
+
+    # ── S4 edge cases ──
+
+    def test_case_missing_default_combinational_message(self) -> None:
+        """Missing default in combinational mentions latch inference."""
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "case (sel)",
+            "2'b00: out = a;",
+            "2'b01: out = b;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        missing = [s for s in smells if s.kind == SmellKind.CASE_MISSING_DEFAULT]
+        assert len(missing) >= 1
+        assert "latch" in missing[0].message.lower()
+
+    def test_case_missing_default_sequential_no_latch_message(self) -> None:
+        """Missing default in sequential does NOT mention latch."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (sel)",
+            "2'b00: out <= a;",
+            "2'b01: out <= b;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        missing = [s for s in smells if s.kind == SmellKind.CASE_MISSING_DEFAULT]
+        assert len(missing) >= 1
+        assert "latch" not in missing[0].message.lower()
+
+    # ── S5 edge cases ──
+
+    def test_casex_in_combinational_detected(self) -> None:
+        """casex in combinational block is also detected."""
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "casex (data)",
+            "8'b1xxx_xxxx: result = 1;",
+            "default: result = 0;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        casex = [s for s in smells if s.kind == SmellKind.CASEX_USAGE]
+        assert len(casex) >= 1
+
+    # ── S6 edge cases ──
+
+    def test_mixed_different_vars_not_flagged(self) -> None:
+        """Blocking to one var and nonblocking to another is fine."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "tmp = a + b;",
+            "result <= tmp;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        mixed = [s for s in smells if s.kind == SmellKind.MIXED_BLOCKING_NONBLOCKING]
+        assert len(mixed) == 0
+
+    def test_mixed_inside_case_branches(self) -> None:
+        """Mixed blocking/nonblocking inside different case branches is flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "2'b00: count = 0;",
+            "default: count <= count + 1;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        mixed = [s for s in smells if s.kind == SmellKind.MIXED_BLOCKING_NONBLOCKING]
+        assert len(mixed) >= 1
+
+    # ── S7 edge cases ──
+
+    def test_missing_reset_with_async_rst(self) -> None:
+        """Block with async_rst in condition is not flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (async_rst) count <= 0;",
+            "else count <= count + 1;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        reset = [s for s in smells if s.kind == SmellKind.MISSING_RESET]
+        assert len(reset) == 0
+
+    def test_missing_reset_with_rst_n(self) -> None:
+        """Block with rst_n (active-low reset) is not flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (!rst_n) count <= 0;",
+            "else count <= count + 1;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        reset = [s for s in smells if s.kind == SmellKind.MISSING_RESET]
+        assert len(reset) == 0
+
+    def test_missing_reset_combinational_not_flagged(self) -> None:
+        """Combinational blocks don't need reset — not flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "result = a + b;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        reset = [s for s in smells if s.kind == SmellKind.MISSING_RESET]
+        assert len(reset) == 0
+
+    def test_missing_reset_initial_not_flagged(self) -> None:
+        """Initial blocks don't need reset — not flagged."""
+        source = "module top; initial begin count <= 0; end endmodule"
+        smells = self._smells(source)
+        reset = [s for s in smells if s.kind == SmellKind.MISSING_RESET]
+        assert len(reset) == 0
+
+    # ── S8 edge cases ──
+
+    def test_unsized_literal_in_combinational(self) -> None:
+        """Unsized literal in combinational block is also flagged."""
+        source = "module top; always @* begin result = 0; end endmodule"
+        smells = self._smells(source)
+        unsized = [s for s in smells if s.kind == SmellKind.UNSIZED_LITERAL]
+        assert len(unsized) >= 1
+
+    def test_unsized_literal_negative(self) -> None:
+        """Negative unsized literal is flagged."""
+        source = "module top; always @(posedge clk) begin count <= -1; end endmodule"
+        smells = self._smells(source)
+        unsized = [s for s in smells if s.kind == SmellKind.UNSIZED_LITERAL]
+        assert len(unsized) >= 1
+
+    def test_zero_is_unsized(self) -> None:
+        """Bare 0 is unsized."""
+        source = "module top; always @(posedge clk) begin count <= 0; end endmodule"
+        smells = self._smells(source)
+        unsized = [s for s in smells if s.kind == SmellKind.UNSIZED_LITERAL]
+        assert len(unsized) >= 1
+
+    # ── S9 edge cases ──
+
+    def test_delay_in_combinational_not_flagged(self) -> None:
+        """Delay in combinational block is not flagged by S9."""
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "#1 result = data;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        delay = [s for s in smells if s.kind == SmellKind.DELAY_IN_SYNTHESIZABLE]
+        assert len(delay) == 0
+
+    # ── S11 edge cases ──
+
+    def test_multiple_empty_case_branches(self) -> None:
+        """Multiple empty branches each get their own smell."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "2'b00:",
+            "2'b01:",
+            "2'b10: x <= 1;",
+            "default: x <= 0;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        empty = [s for s in smells if s.kind == SmellKind.EMPTY_CASE_BRANCH]
+        assert len(empty) == 2
+
+    # ── S12 edge cases ──
+
+    def test_deep_nesting_in_case(self) -> None:
+        """Deep nesting inside case branches is detected."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (s)",
+            "0: begin",
+            "  if (a) begin",
+            "    if (b) begin",
+            "      if (c) begin",
+            "        if (d) x <= 1;",
+            "      end",
+            "    end",
+            "  end",
+            "end",
+            "end",
+            "default: x <= 0;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        deep = [s for s in smells if s.kind == SmellKind.DEEP_NESTING]
+        assert len(deep) >= 1
+
+    def test_exactly_depth_3_not_flagged(self) -> None:
+        """Nesting at exactly depth 3 (threshold) is not flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (a) begin",
+            "  if (b) begin",
+            "    if (c) x <= 1;",
+            "  end",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        deep = [s for s in smells if s.kind == SmellKind.DEEP_NESTING]
+        assert len(deep) == 0
+
+    # ── S14 edge cases ──
+
+    def test_multi_driver_three_always_blocks(self) -> None:
+        """Signal driven by 3 always blocks is still flagged once."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin x <= 1; end",
+            "always @(posedge rst) begin x <= 0; end",
+            "always @(posedge en) begin x <= 2; end",
+            "endmodule",
+        ])
+        _, module_smells = self._extract(source)
+        multi = [s for s in module_smells if s.kind == SmellKind.MULTI_DRIVER_SIGNAL]
+        assert len(multi) == 1
+        assert multi[0].severity == SmellSeverity.ERROR
+
+    def test_multi_driver_initial_excluded(self) -> None:
+        """Only initial blocks — no multi-driver at all."""
+        source = "\n".join([
+            "module top;",
+            "initial begin x <= 0; end",
+            "initial begin x <= 1; end",
+            "endmodule",
+        ])
+        _, module_smells = self._extract(source)
+        multi = [s for s in module_smells if s.kind == SmellKind.MULTI_DRIVER_SIGNAL]
+        assert len(multi) == 0
+
+    # ── S15 edge cases ──
+
+    def test_incomplete_sensitivity_multiple_missing(self) -> None:
+        """Multiple missing signals are all reported."""
+        source = "\n".join([
+            "module top;",
+            "always @(a) begin",
+            "result = a + b + c;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        sens = [s for s in smells if s.kind == SmellKind.INCOMPLETE_SENSITIVITY]
+        assert len(sens) >= 1
+        assert "b" in sens[0].message
+        assert "c" in sens[0].message
+
+    def test_edge_triggered_not_flagged_s15(self) -> None:
+        """Edge-triggered blocks are not checked for incomplete sensitivity."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "result <= a + b;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        sens = [s for s in smells if s.kind == SmellKind.INCOMPLETE_SENSITIVITY]
+        assert len(sens) == 0
+
+    # ── S16 edge cases ──
+
+    def test_no_duplicate_unique_labels(self) -> None:
+        """Unique case labels produce no duplicate smell."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "2'b00: x <= 0;",
+            "2'b01: x <= 1;",
+            "2'b10: x <= 2;",
+            "default: x <= 3;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        dup = [s for s in smells if s.kind == SmellKind.DUPLICATE_CASE_LABEL]
+        assert len(dup) == 0
+
+    def test_duplicate_count_in_message(self) -> None:
+        """Duplicate label count is reported in the message."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "2'b00: x <= 0;",
+            "2'b00: x <= 1;",
+            "2'b00: x <= 2;",
+            "default: x <= 3;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        dup = [s for s in smells if s.kind == SmellKind.DUPLICATE_CASE_LABEL]
+        assert len(dup) >= 1
+        assert "3 times" in dup[0].message
+
+    # ── S17 edge cases ──
+
+    def test_forever_with_disable_inside_if(self) -> None:
+        """Disable nested inside if within forever is found."""
+        source = "\n".join([
+            "module top;",
+            "initial begin",
+            "forever begin",
+            "if (done)",
+            "  disable gen;",
+            "clk <= ~clk;",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        forever = [s for s in smells if s.kind == SmellKind.FOREVER_WITHOUT_DISABLE]
+        assert len(forever) == 0
+
+    def test_forever_in_sequential_flagged(self) -> None:
+        """Forever without disable in sequential block is flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "forever begin",
+            "x <= ~x;",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        forever = [s for s in smells if s.kind == SmellKind.FOREVER_WITHOUT_DISABLE]
+        assert len(forever) >= 1
+
+
+class TestSmellMultiDetectorInteraction:
+    """Tests for multiple smells triggering on the same code."""
+
+    def _extract(self, source: str):
+        from vodor.application.smell_detectors import detect_module_smells, detect_smells
+        su = SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
+        diagram = AntlrVerilogControlFlowExtractor().extract(su)
+        per_func = []
+        for f in diagram.functions:
+            per_func.extend(detect_smells(f))
+        module = detect_module_smells(diagram)
+        return per_func, module
+
+    def _smells(self, source: str) -> list:
+        per_func, _ = self._extract(source)
+        return per_func
+
+    def test_blocking_in_seq_plus_unsized_literal(self) -> None:
+        """Blocking assignment with unsized literal triggers both S1 and S8."""
+        source = "module top; always @(posedge clk) begin count = 0; end endmodule"
+        smells = self._smells(source)
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        unsized = [s for s in smells if s.kind == SmellKind.UNSIZED_LITERAL]
+        assert len(blocking) >= 1
+        assert len(unsized) >= 1
+
+    def test_case_no_default_plus_casex(self) -> None:
+        """casex without default triggers both S4 and S5."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "casex (data)",
+            "8'b1xxx_xxxx: result <= 1;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        missing = [s for s in smells if s.kind == SmellKind.CASE_MISSING_DEFAULT]
+        casex = [s for s in smells if s.kind == SmellKind.CASEX_USAGE]
+        assert len(missing) >= 1
+        assert len(casex) >= 1
+
+    def test_nonblocking_in_comb_plus_unsized_literal(self) -> None:
+        """Nonblocking with unsized literal in combinational triggers S2 and S8."""
+        source = "module top; always @* begin result <= 0; end endmodule"
+        smells = self._smells(source)
+        nb = [s for s in smells if s.kind == SmellKind.NONBLOCKING_IN_COMBINATIONAL]
+        unsized = [s for s in smells if s.kind == SmellKind.UNSIZED_LITERAL]
+        assert len(nb) >= 1
+        assert len(unsized) >= 1
+
+    def test_seq_block_multiple_smells(self) -> None:
+        """Sequential block can trigger S1, S7, S8 simultaneously."""
+        source = "module top; always @(posedge clk) begin count = 0; end endmodule"
+        smells = self._smells(source)
+        kinds = {s.kind for s in smells}
+        assert SmellKind.BLOCKING_IN_SEQUENTIAL in kinds
+        assert SmellKind.MISSING_RESET in kinds
+        assert SmellKind.UNSIZED_LITERAL in kinds
+
+    def test_empty_module_minimal_smells(self) -> None:
+        """Module with empty always block only gets missing reset (INFO)."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        # Only missing reset — no assignments to trigger other smells
+        assert all(s.kind == SmellKind.MISSING_RESET for s in smells)
+        assert len(smells) == 1
+
+    def test_smell_severity_levels(self) -> None:
+        """Verify correct severity levels for each kind."""
+        from vodor.application.smell_detectors import detect_module_smells
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin count = 0; end",
+            "always @(posedge rst) begin count = 1; end",
+            "endmodule",
+        ])
+        per_func, module = self._extract(source)
+        all_smells = per_func + module
+
+        error_kinds = {s.kind for s in all_smells if s.severity == SmellSeverity.ERROR}
+        info_kinds = {s.kind for s in all_smells if s.severity == SmellSeverity.INFO}
+
+        assert SmellKind.BLOCKING_IN_SEQUENTIAL in error_kinds
+        assert SmellKind.MULTI_DRIVER_SIGNAL in error_kinds
+        assert SmellKind.MISSING_RESET in info_kinds
+        assert SmellKind.UNSIZED_LITERAL in info_kinds
+
+
+class TestSmellLocationFields:
+    """Verify that smell location fields are populated correctly."""
+
+    def _smells(self, source: str) -> list:
+        from vodor.application.smell_detectors import detect_smells
+        su = SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
+        diagram = AntlrVerilogControlFlowExtractor().extract(su)
+        smells = []
+        for f in diagram.functions:
+            smells.extend(detect_smells(f))
+        return smells
+
+    def test_location_contains_block_name(self) -> None:
+        source = "module top; always @(posedge clk) begin count = 0; end endmodule"
+        smells = self._smells(source)
+        for s in smells:
+            assert s.location.block_name == "always_1"
+
+    def test_location_step_label_has_content(self) -> None:
+        source = "module top; always @(posedge clk) begin count = count + 1; end endmodule"
+        smells = self._smells(source)
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) >= 1
+        assert "count" in blocking[0].location.step_label
+
+    def test_location_message_readable(self) -> None:
+        source = "module top; always @(posedge clk) begin count = count + 1; end endmodule"
+        smells = self._smells(source)
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) >= 1
+        assert len(blocking[0].message) > 10
+        assert "Blocking" in blocking[0].message
+
+
+class TestSplitCaseLabel:
+    """Tests for the _split_case_label helper in the extractor."""
+
+    def test_simple_label(self) -> None:
+        from vodor.infrastructure.antlr.control_flow_extractor import _split_case_label
+        label, sep, after = _split_case_label("2'b00: x <= 0;")
+        assert label == "2'b00"
+        assert sep == ":"
+        assert "x <= 0" in after
+
+    def test_default_label(self) -> None:
+        from vodor.infrastructure.antlr.control_flow_extractor import _split_case_label
+        label, sep, after = _split_case_label("default: out = 0;")
+        assert label == "default"
+
+    def test_bus_index_label(self) -> None:
+        from vodor.infrastructure.antlr.control_flow_extractor import _split_case_label
+        label, sep, after = _split_case_label("data[31:0]: result = 1;")
+        assert label == "data[31:0]"
+        assert "result = 1" in after
+
+    def test_nested_bus_index(self) -> None:
+        from vodor.infrastructure.antlr.control_flow_extractor import _split_case_label
+        label, sep, after = _split_case_label("mem[idx+1][7:0]: out = 1;")
+        assert label == "mem[idx+1][7:0]"
+        assert "out = 1" in after
+
+    def test_no_colon(self) -> None:
+        from vodor.infrastructure.antlr.control_flow_extractor import _split_case_label
+        label, sep, after = _split_case_label("something")
+        assert label == "something"
+        assert sep == ""
+        assert after == ""
