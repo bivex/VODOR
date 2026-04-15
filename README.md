@@ -24,6 +24,21 @@ Verilog-Oriented Diagrammatic Output & Rendering. Parses Verilog source code and
 
 <img src="docs/screenshots/simple_diagram.png" width="600" alt="Simple module with structure panel and basic if/else, for, while, case control flow">
 
+### Real-world: verilog-uart (alexforencich)
+
+Generated from [verilog-uart](https://github.com/alexforencich/verilog-uart) using `vodor nassi-dir`.
+
+<table>
+<tr>
+<td><img src="docs/screenshots/RTL_uart_rx.png" width="400" alt="uart_rx state machine with nested if/else for bit sampling"><br><code>uart_rx.v</code> — receiver state machine</td>
+<td><img src="docs/screenshots/RTL_uart_tx.png" width="400" alt="uart_tx state machine with prescale and shift-out logic"><br><code>uart_tx.v</code> — transmitter state machine</td>
+</tr>
+<tr>
+<td><img src="docs/screenshots/RTL_uart.png" width="400" alt="uart top-level structural module with 2 instantiations"><br><code>uart.v</code> — structural wrapper (15 ports, 2 inst)</td>
+<td><img src="docs/screenshots/TB_test_uart_rx.png" width="400" alt="test_uart_rx testbench with initial block"><br><code>test_uart_rx.v</code> — testbench</td>
+</tr>
+</table>
+
 ## Architecture
 
 DDD-inspired layered monolith with hexagonal boundaries:
