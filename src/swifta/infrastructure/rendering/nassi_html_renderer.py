@@ -21,6 +21,8 @@ from swifta.domain.control_flow import (
     GuardFlowStep,
     IfFlowStep,
     RepeatWhileFlowStep,
+    StructDeclarationFlowStep,
+    StructFieldAccessFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
     WaitConditionFlowStep,
@@ -633,6 +635,32 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
                 '<div class="ns-node ns-action">'
                 f'<div class="ns-label" aria-label="Action {escape(step.label)}">'
                 f'<code class="action-text">{escape(step.label)}</code>'
+                "</div>"
+                "</div>"
+            )
+        if isinstance(step, StructDeclarationFlowStep):
+            return (
+                '<div class="ns-node ns-struct">'
+                f'<div class="ns-header" aria-label="Struct {escape(step.name)}">'
+                f'Struct {escape(step.name)}'
+                "</div>"
+                '<div class="ns-body">'
+                "<ul>"
+                + "".join(
+                    f'<li><code>{escape(field_name)}</code>: {escape(field_type)}</li>'
+                    for field_name, field_type in step.fields
+                )
+                + "</ul>"
+                + "</ul>"
+                "</div>"
+                "</div>"
+            )
+        if isinstance(step, StructFieldAccessFlowStep):
+            direction = "write" if step.is_write else "read"
+            return (
+                '<div class="ns-node ns-struct-access">'
+                f'<div class="ns-label" aria-label="Struct {escape(step.struct_name)}.{escape(step.field_name)} ({direction})">'
+                f'<code>{escape(step.struct_name)}.{escape(step.field_name)}</code>'
                 "</div>"
                 "</div>"
             )

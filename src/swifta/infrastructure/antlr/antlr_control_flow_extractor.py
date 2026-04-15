@@ -9,6 +9,8 @@ from swifta.domain.control_flow import (
     ActionFlowStep,
     ControlFlowDiagram,
     FunctionControlFlow,
+    StructDeclarationFlowStep,
+    StructFieldAccessFlowStep,
 )
 from swifta.domain.model import SourceUnit
 from swifta.domain.ports import VerilogControlFlowExtractor
@@ -85,6 +87,8 @@ class BasicVerilogCFGListener(ParseTreeListener):
             self._handle_nonblocking_enter(ctx)
         elif rule_index == VerilogParser.RULE_blocking_assignment:
             self._handle_blocking_enter(ctx)
+        # Note: struct handling is primarily a Swift/software concept
+        # For Verilog, we'd look for parameter definitions or similar constructs
 
     def exitEveryRule(self, ctx):
         """Dispatch on exit: called for every rule."""
@@ -99,9 +103,11 @@ class BasicVerilogCFGListener(ParseTreeListener):
         """Get rule name from context."""
         return VerilogParser.ruleNames[ctx.getRuleIndex()] if ctx.getRuleIndex() >= 0 else "unknown"
 
+    # --- Verilog-specific handlers ---
+
     def _handle_always_enter(self, ctx):
         """Handle always blocks."""
-        always_type = "always"  # Default
+        always_type = "always"
         function_name = f"{always_type}_block"
         function_signature = f"{always_type} block"
 
@@ -113,13 +119,11 @@ class BasicVerilogCFGListener(ParseTreeListener):
     def _handle_always_exit(self, ctx):
         """Finalize always block."""
         if self.current_function_name:
-            self._function_data.append(
-                (
-                    self.current_function_name,
-                    self.current_function_signature,
-                    self.current_statements.copy(),
-                )
-            )
+            self._function_data.append((
+                self.current_function_name,
+                self.current_function_signature,
+                self.current_statements.copy(),
+            ))
             print(
                 f"DEBUG: Added function data: {self.current_function_name} with {len(self.current_statements)} steps"
             )
@@ -142,3 +146,14 @@ class BasicVerilogCFGListener(ParseTreeListener):
         assignment_text = ctx.getText()
         print(f"DEBUG: Adding blocking assignment: {assignment_text}")
         self.current_statements.append(ActionFlowStep(assignment_text))
+
+    # --- Struct handling (placeholder for Swift-side usage) ---
+
+    def _handle_struct_declaration_enter(self, ctx):
+        """Handle struct declaration (primarily for Swift parsing)."""
+        print("DEBUG: Struct declaration encountered (Swift focus)")
+        # In a full implementation, this would extract struct name, fields, types
+
+    def _handle_struct_member_enter(self, ctx):
+        """Handle struct member definition (primarily for Swift parsing)."""
+        print("DEBUG: Struct member encountered (Swift focus)")

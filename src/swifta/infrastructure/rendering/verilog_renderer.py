@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
+from html import escape
+
 import re
 
 from swifta.domain.control_flow import (
     ActionFlowStep,
     ControlFlowDiagram,
-    ControlFlowStep,
     DeferFlowStep,
     DelayFlowStep,
     DisableFlowStep,
     DoCatchFlowStep,
     EventWaitFlowStep,
     ForkJoinFlowStep,
-    ForeverFlowStep,
     ForInFlowStep,
+    ForeverFlowStep,
     GuardFlowStep,
     IfFlowStep,
     RepeatWhileFlowStep,
+    StructDeclarationFlowStep,
+    StructFieldAccessFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
     WaitConditionFlowStep,
@@ -85,6 +88,10 @@ class VerilogDiagramRenderer(VerilogRenderer):
     def _render_step(self, step: ControlFlowStep, *, depth: int) -> str:
         if isinstance(step, ActionFlowStep):
             return self._render_action(step, depth=depth)
+        if isinstance(step, StructDeclarationFlowStep):
+            return self._render_struct(step, depth=depth)
+        if isinstance(step, StructFieldAccessFlowStep):
+            return self._render_struct_access(step, depth=depth)
         if isinstance(step, IfFlowStep):
             return self._render_if(step, depth=depth)
         if isinstance(step, GuardFlowStep):
@@ -114,6 +121,26 @@ class VerilogDiagramRenderer(VerilogRenderer):
         if isinstance(step, WaitConditionFlowStep):
             return self._render_wait_condition(step, depth=depth)
         raise TypeError(f"unsupported step type: {type(step)!r}")
+
+    def _render_struct(self, step: StructDeclarationFlowStep, *, depth: int) -> str:
+        indent = _INDENT * depth
+        fields_str = "".join(
+            f"{_INDENT * (depth + 1)}{escape(field_name)}: {escape(field_type)};\n"
+            for field_name, field_type in step.fields
+        )
+        return (
+            f"{indent}// Struct: {escape(step.name)}\n"
+            f"{indent}// Fields:\n"
+            f"{indent}{fields_str}"
+        )
+
+    def _render_struct_access(self, step: StructFieldAccessFlowStep, *, depth: int) -> str:
+        indent = _INDENT * depth
+        direction = "write" if step.is_write else "read"
+        return (
+            f"{indent}// {direction} {escape(step.struct_name)}.{escape(step.field_name)}\n"
+            f"{indent}{escape(step.struct_name)}.{escape(step.field_name)};\n"
+        )
 
     def _render_action(self, step: ActionFlowStep, *, depth: int) -> str:
         indent = _INDENT * depth
@@ -229,8 +256,8 @@ class VerilogDiagramRenderer(VerilogRenderer):
             f"{indent}// do-catch\n"
             f"{indent}begin\n"
             f"{body}"
-            f"{indent}end\n"
             f"{catch_blocks}"
+            f"{indent}end\n"
         )
 
     def _render_defer(self, step: DeferFlowStep, *, depth: int) -> str:
@@ -356,11 +383,11 @@ def _parse_for_in_header(header: str) -> tuple[str, str]:
 
 def _normalize_case_label(label: str) -> str:
     compact = label.removesuffix(":").strip()
+    if compact.startswith("default"):
+        return "default"
     if compact.startswith("case "):
         value = compact[len("case "):].strip()
         if re.match(r"^-?\d+$", value):
             return value
         return f"'{value}"
-    if compact == "default":
-        return "default"
     return compact

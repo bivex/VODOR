@@ -19,6 +19,8 @@ from swifta.domain.control_flow import (
     GuardFlowStep,
     IfFlowStep,
     RepeatWhileFlowStep,
+    StructDeclarationFlowStep,
+    StructFieldAccessFlowStep,
     SwitchCaseFlow,
     SwitchFlowStep,
     WaitConditionFlowStep,
@@ -374,6 +376,43 @@ class TestVerilogRendererWaitCondition:
         assert "wait (ready == 1) begin" in result
         assert "x <= 1;" in result
 
+
+class TestStructVerification:
+    def test_struct_declaration(self) -> None:
+        result = _render_steps(
+            StructDeclarationFlowStep(
+                name="my_struct",
+                fields=(
+                    ("field_a", "int"),
+                    ("field_b", "float"),
+                ),
+            )
+        )
+        assert "Struct: my_struct" in result
+        assert "field_a: int" in result
+        assert "field_b: float" in result
+
+    def test_struct_field_access_read(self) -> None:
+        result = _render_steps(
+            StructFieldAccessFlowStep(
+                struct_name="my_struct",
+                field_name="field_a",
+                is_write=False,
+            )
+        )
+        assert "// read my_struct.field_a" in result
+        assert "my_struct.field_a;" in result
+
+    def test_struct_field_access_write(self) -> None:
+        result = _render_steps(
+            StructFieldAccessFlowStep(
+                struct_name="my_struct",
+                field_name="field_a",
+                is_write=True,
+            )
+        )
+        assert "// write my_struct.field_a" in result
+        assert "my_struct.field_a;" in result
 
 class TestVerilogRendererUnsupported:
     def test_unknown_step_type_raises(self) -> None:

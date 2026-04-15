@@ -110,6 +110,19 @@ class WaitConditionFlowStep(ControlFlowStep):
 
 
 @dataclass(frozen=True, slots=True)
+class StructDeclarationFlowStep(ControlFlowStep):
+    name: str
+    fields: tuple[tuple[str, str], ...]  # (field_name, field_type)
+
+
+@dataclass(frozen=True, slots=True)
+class StructFieldAccessFlowStep(ControlFlowStep):
+    struct_name: str
+    field_name: str
+    is_write: bool
+
+
+@dataclass(frozen=True, slots=True)
 class FunctionControlFlow:
     name: str
     signature: str
