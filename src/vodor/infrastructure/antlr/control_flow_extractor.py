@@ -268,11 +268,48 @@ def _extract_steps(body: str) -> tuple[ControlFlowStep, ...]:
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
     # Split compound lines like "end else begin" and "end else if ..." into separate lines
     lines = _split_compound_end(lines)
+    # Join continuation lines (multi-line expressions ending with ||, &&, etc.)
+    lines = _join_continuation_lines(lines)
     # Skip named begin labels like ": processing_block" at the start
     while lines and lines[0].startswith(":"):
         lines = lines[1:]
     steps, _ = _parse_steps(lines, 0, stop_prefixes=set())
     return tuple(steps)
+
+
+def _join_continuation_lines(lines: list[str]) -> list[str]:
+    """Join lines that are continuations of multi-line expressions.
+
+    A line is a continuation target (should pull in the next line) if it ends
+    with a binary operator (``||``, ``&&``) or a comma, or has more opening
+    parentheses/brackets than closing ones.
+    """
+    _CONTINUATION_SUFFIXES = ("||", "&&", ",")
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Keep joining while the current accumulated line is a continuation target
+        while i + 1 < len(lines) and _is_continuation(line):
+            i += 1
+            line = line + " " + lines[i]
+        result.append(line)
+        i += 1
+    return result
+
+
+def _is_continuation(line: str) -> bool:
+    """Return True if *line* expects more content on the next line."""
+    stripped = line.rstrip()
+    if not stripped:
+        return False
+    # Ends with a binary operator or comma
+    if stripped.endswith(("||", "&&", ",")):
+        return True
+    # Unbalanced parentheses — more ( than )
+    if stripped.count("(") > stripped.count(")"):
+        return True
+    return False
 
 
 def _split_compound_end(lines: list[str]) -> list[str]:
@@ -622,8 +659,16 @@ def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
                 if next_line.lower().startswith("end"):
                     index += 1
                     continue
+                if next_line.lower().startswith("else"):
+                    # Dangling else (from a multi-line if misparse) — skip and continue
+                    index += 1
+                    continue
+                prev_index = index
                 parsed, index = _parse_steps(lines, index, stop_prefixes={"endcase"})
                 case_steps.extend(parsed)
+                # Safety: ensure progress to prevent infinite loops
+                if index == prev_index:
+                    index += 1
             cases.append(SwitchCaseFlow(label=label, steps=tuple(case_steps)))
             continue
 
