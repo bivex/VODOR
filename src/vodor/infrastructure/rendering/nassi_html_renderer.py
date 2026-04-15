@@ -304,6 +304,7 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
         background:
           linear-gradient(180deg, rgba(255,255,255,0.015), rgba(255,255,255,0)),
           var(--action-fill);
+        max-width: 800px;
       }}
       .action-text {{
         display: block;
@@ -315,7 +316,8 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
         font-variant-ligatures: none;
         tab-size: 2;
         white-space: pre-wrap;
-        overflow-wrap: anywhere;
+        overflow-wrap: break-word;
+        word-break: break-all;
       }}
       /* ── Action kind badges ── */
       .action-badge {{
