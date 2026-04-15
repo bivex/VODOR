@@ -29,6 +29,18 @@ class SmellKind(Enum):
     LATCH_RISK_INCOMPLETE_IF = "latch_risk_incomplete_if"
     CASE_MISSING_DEFAULT = "case_missing_default"
     CASEX_USAGE = "casex_usage"
+    MIXED_BLOCKING_NONBLOCKING = "mixed_blocking_nonblocking"
+    MISSING_RESET = "missing_reset"
+    UNSIZED_LITERAL = "unsized_literal"
+    DELAY_IN_SYNTHESIZABLE = "delay_in_synthesizable"
+    PROCEDURAL_CONTINUOUS_USAGE = "procedural_continuous_usage"
+    EMPTY_CASE_BRANCH = "empty_case_branch"
+    DEEP_NESTING = "deep_nesting"
+    LARGE_CASE = "large_case"
+    MULTI_DRIVER_SIGNAL = "multi_driver_signal"
+    INCOMPLETE_SENSITIVITY = "incomplete_sensitivity"
+    DUPLICATE_CASE_LABEL = "duplicate_case_label"
+    FOREVER_WITHOUT_DISABLE = "forever_without_disable"
 
 
 @dataclass(frozen=True, slots=True)

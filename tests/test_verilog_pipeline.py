@@ -1237,3 +1237,285 @@ class TestSmellFalsePositiveFixes:
         smells = detect_smells(functions[0])
         latch = [s for s in smells if s.kind == SmellKind.LATCH_RISK_INCOMPLETE_IF]
         assert len(latch) == 1  # y has no default
+
+
+class TestNewSmellDetectors:
+    """Tests for S6-S17 smell detectors."""
+
+    def _extract(self, source: str):
+        from vodor.application.smell_detectors import detect_module_smells, detect_smells
+        su = SourceUnit(identifier=SourceUnitId("t.v"), location="t.v", content=source)
+        diagram = AntlrVerilogControlFlowExtractor().extract(su)
+        per_func = []
+        for f in diagram.functions:
+            per_func.extend(detect_smells(f))
+        module = detect_module_smells(diagram)
+        return per_func, module
+
+    def _smells(self, source: str) -> list:
+        per_func, _ = self._extract(source)
+        return per_func
+
+    # S6: Mixed blocking/nonblocking
+    def test_mixed_blocking_nonblocking(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (rst) begin",
+            "count = 0;",
+            "end",
+            "else begin",
+            "count <= count + 1;",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        mixed = [s for s in smells if s.kind == SmellKind.MIXED_BLOCKING_NONBLOCKING]
+        assert len(mixed) >= 1
+        assert mixed[0].severity == SmellSeverity.ERROR
+
+    def test_no_mixed_when_consistent(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "count <= count + 1;",
+            "valid <= 1;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        mixed = [s for s in smells if s.kind == SmellKind.MIXED_BLOCKING_NONBLOCKING]
+        assert len(mixed) == 0
+
+    # S7: Missing reset
+    def test_missing_reset_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "count <= count + 1;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        reset = [s for s in smells if s.kind == SmellKind.MISSING_RESET]
+        assert len(reset) == 1
+        assert reset[0].severity == SmellSeverity.INFO
+
+    def test_no_missing_reset_with_rst(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (rst) count <= 0;",
+            "else count <= count + 1;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        reset = [s for s in smells if s.kind == SmellKind.MISSING_RESET]
+        assert len(reset) == 0
+
+    # S8: Unsized literal
+    def test_unsized_literal_detected(self) -> None:
+        source = "module top; always @(posedge clk) begin count <= 0; end endmodule"
+        smells = self._smells(source)
+        unsized = [s for s in smells if s.kind == SmellKind.UNSIZED_LITERAL]
+        assert len(unsized) >= 1
+
+    def test_sized_literal_not_flagged(self) -> None:
+        source = "module top; always @(posedge clk) begin count <= 8'h00; end endmodule"
+        smells = self._smells(source)
+        unsized = [s for s in smells if s.kind == SmellKind.UNSIZED_LITERAL]
+        assert len(unsized) == 0
+
+    # S9: Delay in synthesizable
+    def test_delay_in_sequential_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "#1 result <= data;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        delay = [s for s in smells if s.kind == SmellKind.DELAY_IN_SYNTHESIZABLE]
+        assert len(delay) >= 1
+        assert delay[0].severity == SmellSeverity.WARNING
+
+    # S10: Procedural continuous assign
+    def test_procedural_continuous_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "assign out = data;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        pca = [s for s in smells if s.kind == SmellKind.PROCEDURAL_CONTINUOUS_USAGE]
+        assert len(pca) >= 1
+
+    # S11: Empty case branch
+    def test_empty_case_branch_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "2'b00:",
+            "2'b01: x <= 1;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        empty = [s for s in smells if s.kind == SmellKind.EMPTY_CASE_BRANCH]
+        assert len(empty) >= 1
+
+    # S12: Deep nesting
+    def test_deep_nesting_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (a) begin",
+            "  if (b) begin",
+            "    if (c) begin",
+            "      if (d) x <= 1;",
+            "    end",
+            "  end",
+            "end",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        deep = [s for s in smells if s.kind == SmellKind.DEEP_NESTING]
+        assert len(deep) >= 1
+
+    def test_shallow_nesting_not_flagged(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (a) begin",
+            "  if (b) x <= 1;",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        deep = [s for s in smells if s.kind == SmellKind.DEEP_NESTING]
+        assert len(deep) == 0
+
+    # S13: Large case
+    def test_large_case_not_flagged_under_threshold(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "0: x <= 0;",
+            "1: x <= 1;",
+            "default: x <= 2;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        large = [s for s in smells if s.kind == SmellKind.LARGE_CASE]
+        assert len(large) == 0
+
+    # S14: Multi-driver signal
+    def test_multi_driver_signal_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin x <= 1; end",
+            "always @(posedge rst) begin x <= 0; end",
+            "endmodule",
+        ])
+        _, module_smells = self._extract(source)
+        multi = [s for s in module_smells if s.kind == SmellKind.MULTI_DRIVER_SIGNAL]
+        assert len(multi) >= 1
+        assert multi[0].severity == SmellSeverity.ERROR
+
+    def test_no_multi_driver_different_signals(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin x <= 1; end",
+            "always @(posedge rst) begin y <= 0; end",
+            "endmodule",
+        ])
+        _, module_smells = self._extract(source)
+        multi = [s for s in module_smells if s.kind == SmellKind.MULTI_DRIVER_SIGNAL]
+        assert len(multi) == 0
+
+    # S15: Incomplete sensitivity
+    def test_incomplete_sensitivity_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(a) begin",
+            "result = a + b;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        sens = [s for s in smells if s.kind == SmellKind.INCOMPLETE_SENSITIVITY]
+        assert len(sens) >= 1
+        assert "b" in sens[0].message
+
+    def test_wildcard_sensitivity_not_flagged(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "result = a + b;",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        sens = [s for s in smells if s.kind == SmellKind.INCOMPLETE_SENSITIVITY]
+        assert len(sens) == 0
+
+    # S16: Duplicate case label
+    def test_duplicate_case_label_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "2'b00: x <= 0;",
+            "2'b00: x <= 1;",
+            "default: x <= 2;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        dup = [s for s in smells if s.kind == SmellKind.DUPLICATE_CASE_LABEL]
+        assert len(dup) >= 1
+        assert dup[0].severity == SmellSeverity.ERROR
+
+    # S17: Forever without disable
+    def test_forever_without_disable_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "initial begin",
+            "forever begin",
+            "clk <= ~clk;",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        forever = [s for s in smells if s.kind == SmellKind.FOREVER_WITHOUT_DISABLE]
+        assert len(forever) >= 1
+
+    def test_forever_with_disable_not_flagged(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "initial begin",
+            "forever begin",
+            "clk <= ~clk;",
+            "disable gen;",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        smells = self._smells(source)
+        forever = [s for s in smells if s.kind == SmellKind.FOREVER_WITHOUT_DISABLE]
+        assert len(forever) == 0

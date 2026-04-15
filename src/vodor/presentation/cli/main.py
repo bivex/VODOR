@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run_smell_file(path: str) -> int:
-    from vodor.application.smell_detectors import detect_smells
+    from vodor.application.smell_detectors import detect_module_smells, detect_smells
     from vodor.domain.control_flow import SmellReport
 
     extractor = AntlrVerilogControlFlowExtractor()
@@ -154,13 +154,14 @@ def _run_smell_file(path: str) -> int:
     all_smells = []
     for func in diagram.functions:
         all_smells.extend(detect_smells(func))
+    all_smells.extend(detect_module_smells(diagram))
     report = SmellReport(source_location=diagram.source_location, smells=tuple(all_smells))
     print(json.dumps(_smell_report_to_dict(report), indent=2))
     return 1 if any(s.severity.value == "error" for s in report.smells) else 0
 
 
 def _run_smell_dir(path: str) -> int:
-    from vodor.application.smell_detectors import detect_smells
+    from vodor.application.smell_detectors import detect_module_smells, detect_smells
     from vodor.domain.control_flow import SmellReport
 
     extractor = AntlrVerilogControlFlowExtractor()
@@ -172,6 +173,7 @@ def _run_smell_dir(path: str) -> int:
         all_smells = []
         for func in diagram.functions:
             all_smells.extend(detect_smells(func))
+        all_smells.extend(detect_module_smells(diagram))
         reports.append(SmellReport(source_location=diagram.source_location, smells=tuple(all_smells)))
 
     total_smells = sum(len(r.smells) for r in reports)
