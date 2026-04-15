@@ -7,6 +7,7 @@ import pytest
 from vodor.domain.errors import InputValidationError
 from vodor.domain.control_flow import (
     ActionFlowStep,
+    ActionKind,
     DelayFlowStep,
     EventWaitFlowStep,
     ForInFlowStep,
@@ -15,10 +16,13 @@ from vodor.domain.control_flow import (
     DisableFlowStep,
     IfFlowStep,
     RepeatWhileFlowStep,
+    SmellKind,
+    SmellSeverity,
     SwitchFlowStep,
     WaitConditionFlowStep,
     WhileFlowStep,
 )
+from vodor.application.smell_detectors import detect_smells
 from vodor.domain.model import SourceUnit, SourceUnitId, StructuralElementKind
 from vodor.infrastructure.antlr.control_flow_extractor import (
     AntlrVerilogControlFlowExtractor,
@@ -979,3 +983,151 @@ endmodule"""
         assert len(diagram.functions) == 2
         assert diagram.functions[0].name == "always_1"
         assert diagram.functions[1].name == "initial_2"
+
+
+# ── Smell detector tests ──
+
+
+class TestSmellDetectors:
+    def _extract_functions(self, source: str):
+        """Helper: extract functions from Verilog source."""
+        source_unit = SourceUnit(
+            identifier=SourceUnitId("test.v"),
+            location="test.v",
+            content=source,
+        )
+        diagram = AntlrVerilogControlFlowExtractor().extract(source_unit)
+        return diagram.functions
+
+    def test_blocking_in_sequential_detected(self) -> None:
+        source = "module top; always @(posedge clk) begin count = count + 1; end endmodule"
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) >= 1
+        assert blocking[0].severity == SmellSeverity.ERROR
+
+    def test_no_smell_nonblocking_in_sequential(self) -> None:
+        source = "module top; always @(posedge clk) begin count <= count + 1; end endmodule"
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) == 0
+
+    def test_nonblocking_in_combinational_detected(self) -> None:
+        source = "module top; always @* begin result <= a & b; end endmodule"
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        nb = [s for s in smells if s.kind == SmellKind.NONBLOCKING_IN_COMBINATIONAL]
+        assert len(nb) >= 1
+        assert nb[0].severity == SmellSeverity.WARNING
+
+    def test_no_smell_blocking_in_combinational(self) -> None:
+        source = "module top; always @* begin result = a & b; end endmodule"
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        nb = [s for s in smells if s.kind == SmellKind.NONBLOCKING_IN_COMBINATIONAL]
+        assert len(nb) == 0
+
+    def test_latch_risk_incomplete_if_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "if (en)",
+            "result = data;",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        latch = [s for s in smells if s.kind == SmellKind.LATCH_RISK_INCOMPLETE_IF]
+        assert len(latch) >= 1
+
+    def test_no_latch_risk_with_else(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "if (en)",
+            "result = data;",
+            "else",
+            "result = 1'b0;",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        latch = [s for s in smells if s.kind == SmellKind.LATCH_RISK_INCOMPLETE_IF]
+        assert len(latch) == 0
+
+    def test_case_missing_default_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "2'b00: x <= 0;",
+            "2'b01: x <= 1;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        missing = [s for s in smells if s.kind == SmellKind.CASE_MISSING_DEFAULT]
+        assert len(missing) >= 1
+
+    def test_no_smell_case_with_default(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "case (state)",
+            "2'b00: x <= 0;",
+            "default: x <= 1;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        missing = [s for s in smells if s.kind == SmellKind.CASE_MISSING_DEFAULT]
+        assert len(missing) == 0
+
+    def test_casex_usage_detected(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "casex (data)",
+            "8'b1xxx_xxxx: result <= 1;",
+            "default: result <= 0;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        casex = [s for s in smells if s.kind == SmellKind.CASEX_USAGE]
+        assert len(casex) >= 1
+        assert casex[0].severity == SmellSeverity.INFO
+
+    def test_no_smell_casez_not_flagged(self) -> None:
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "casez (data)",
+            "8'b1???_????: result <= 1;",
+            "default: result <= 0;",
+            "endcase",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        casex = [s for s in smells if s.kind == SmellKind.CASEX_USAGE]
+        assert len(casex) == 0
+
+    def test_initial_block_no_sequential_smells(self) -> None:
+        """initial blocks have no sensitivity — no sequential/combinational smells."""
+        source = "module top; initial begin count = 0; end endmodule"
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) == 0

@@ -130,6 +130,10 @@ def main(argv: list[str] | None = None) -> int:
             ]
             print(json.dumps(payload, indent=2))
             return 0
+        elif args.command == "smell-file":
+            return _run_smell_file(args.path)
+        elif args.command == "smell-dir":
+            return _run_smell_dir(args.path)
         else:
             parser.error(f"unsupported command: {args.command}")
     except VodorError as error:
@@ -138,6 +142,71 @@ def main(argv: list[str] | None = None) -> int:
 
     print(json.dumps(report.to_dict(), indent=2))
     return _exit_code_for(report)
+
+
+def _run_smell_file(path: str) -> int:
+    from vodor.application.smell_detectors import detect_smells
+    from vodor.domain.control_flow import SmellReport
+
+    extractor = AntlrVerilogControlFlowExtractor()
+    source_unit = FileSystemSourceRepository().load_file(path)
+    diagram = extractor.extract(source_unit)
+    all_smells = []
+    for func in diagram.functions:
+        all_smells.extend(detect_smells(func))
+    report = SmellReport(source_location=diagram.source_location, smells=tuple(all_smells))
+    print(json.dumps(_smell_report_to_dict(report), indent=2))
+    return 1 if any(s.severity.value == "error" for s in report.smells) else 0
+
+
+def _run_smell_dir(path: str) -> int:
+    from vodor.application.smell_detectors import detect_smells
+    from vodor.domain.control_flow import SmellReport
+
+    extractor = AntlrVerilogControlFlowExtractor()
+    repo = FileSystemSourceRepository()
+    source_units = tuple(repo.list_verilog_sources(path))
+    reports: list[SmellReport] = []
+    for source_unit in source_units:
+        diagram = extractor.extract(source_unit)
+        all_smells = []
+        for func in diagram.functions:
+            all_smells.extend(detect_smells(func))
+        reports.append(SmellReport(source_location=diagram.source_location, smells=tuple(all_smells)))
+
+    total_smells = sum(len(r.smells) for r in reports)
+    error_count = sum(1 for r in reports for s in r.smells if s.severity.value == "error")
+    warning_count = sum(1 for r in reports for s in r.smells if s.severity.value == "warning")
+    info_count = sum(1 for r in reports for s in r.smells if s.severity.value == "info")
+
+    payload = {
+        "root_path": str(Path(path).expanduser().resolve()),
+        "file_count": len(reports),
+        "total_smells": total_smells,
+        "error_count": error_count,
+        "warning_count": warning_count,
+        "info_count": info_count,
+        "files": [_smell_report_to_dict(r) for r in reports if r.smells],
+    }
+    print(json.dumps(payload, indent=2))
+    return 1 if error_count > 0 else 0
+
+
+def _smell_report_to_dict(report) -> dict:
+    return {
+        "source_location": report.source_location,
+        "smell_count": len(report.smells),
+        "smells": [
+            {
+                "kind": s.kind.value,
+                "severity": s.severity.value,
+                "message": s.message,
+                "block": s.location.block_name,
+                "step": s.location.step_label,
+            }
+            for s in report.smells
+        ],
+    }
 
 
 def _build_argument_parser() -> argparse.ArgumentParser:
@@ -190,6 +259,18 @@ def _build_argument_parser() -> argparse.ArgumentParser:
         "--out",
         help="Output directory. Defaults to <input>.verilog/.",
     )
+
+    smell_file = subparsers.add_parser(
+        "smell-file",
+        help="Detect Verilog code smells in one file.",
+    )
+    smell_file.add_argument("path", help="Path to a .v file.")
+
+    smell_dir = subparsers.add_parser(
+        "smell-dir",
+        help="Detect Verilog code smells for all Verilog files in a directory.",
+    )
+    smell_dir.add_argument("path", help="Path to a directory.")
 
     return parser
 

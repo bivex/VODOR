@@ -17,6 +17,20 @@ class ActionKind(Enum):
     OTHER = "other"
 
 
+class SmellSeverity(Enum):
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
+
+
+class SmellKind(Enum):
+    BLOCKING_IN_SEQUENTIAL = "blocking_in_sequential"
+    NONBLOCKING_IN_COMBINATIONAL = "nonblocking_in_combinational"
+    LATCH_RISK_INCOMPLETE_IF = "latch_risk_incomplete_if"
+    CASE_MISSING_DEFAULT = "case_missing_default"
+    CASEX_USAGE = "casex_usage"
+
+
 @dataclass(frozen=True, slots=True)
 class ControlFlowStep:
     """Base type for a structured control flow step."""
@@ -69,6 +83,7 @@ class SwitchCaseFlow:
 class SwitchFlowStep(ControlFlowStep):
     expression: str
     cases: tuple[SwitchCaseFlow, ...]
+    case_keyword: str = "case"
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,3 +216,23 @@ class ControlFlowDiagram:
     functions: tuple[FunctionControlFlow, ...]
     top_level_steps: tuple[ControlFlowStep, ...] = ()
     module_structure: ModuleStructure | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SmellLocation:
+    block_name: str
+    step_label: str
+
+
+@dataclass(frozen=True, slots=True)
+class Smell:
+    kind: SmellKind
+    severity: SmellSeverity
+    message: str
+    location: SmellLocation
+
+
+@dataclass(frozen=True, slots=True)
+class SmellReport:
+    source_location: str
+    smells: tuple[Smell, ...]

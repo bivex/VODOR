@@ -70,6 +70,10 @@ vodor nassi-dir path/to/project --out output/
 # Export behavioral Verilog
 vodor verilog-file path/to/module.v
 vodor verilog-dir path/to/project --out output/
+
+# Detect code smells
+vodor smell-file path/to/module.v
+vodor smell-dir path/to/project
 ```
 
 ## Verilog Construct Support
@@ -139,6 +143,18 @@ Action nodes inside diagrams are automatically classified with distinct visual t
 | Procedural continuous | `pca` | Red | `assign`/`deassign`/`force`/`release` inside `always` |
 | Continuous assign | `ca` | Mint | `assign`/`force`/`release` at module level |
 | Other | — | Default | Everything else |
+
+### Code smell detection
+
+Static analysis detectors flag common RTL correctness issues. See `smells.md` for full specifications.
+
+| Smell | Severity | Trigger |
+|-------|:--------:|---------|
+| Blocking in sequential | ERROR | `=` inside `always @(posedge clk)` |
+| Nonblocking in combinational | WARNING | `<=` inside `always @*` |
+| Latch risk (incomplete if) | WARNING | `if` without `else` in combinational |
+| Missing default in case | WARNING | `case` without `default` branch |
+| casex usage | INFO | `casex` instead of `casez` or `case` |
 
 ### Procedural blocks
 

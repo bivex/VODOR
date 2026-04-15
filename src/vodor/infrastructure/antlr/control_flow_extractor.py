@@ -635,6 +635,13 @@ def _parse_disable(lines: list[str], index: int) -> tuple[DisableFlowStep, int]:
 
 def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
     line = lines[index]
+    lower = line.lower()
+    if lower.startswith("casez "):
+        case_keyword = "casez"
+    elif lower.startswith("casex "):
+        case_keyword = "casex"
+    else:
+        case_keyword = "case"
     expression = _extract_parenthesized(line[4:].strip()) or "expression"
     index += 1
     cases: list[SwitchCaseFlow] = []
@@ -689,7 +696,7 @@ def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
 
         index += 1
 
-    return SwitchFlowStep(expression=expression, cases=tuple(cases)), index
+    return SwitchFlowStep(expression=expression, cases=tuple(cases), case_keyword=case_keyword), index
 
 
 def _parse_fork(lines: list[str], index: int) -> tuple[ForkJoinFlowStep, int]:
