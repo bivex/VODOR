@@ -643,8 +643,14 @@ def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
             after_colon = after_colon.strip().removesuffix(";").strip()
             index += 1
             case_steps: list[ControlFlowStep] = []
-            # If there's a statement on the same line after the colon, capture it
-            if after_colon:
+            # Handle "label: begin" — open a block immediately
+            if after_colon.lower() == "begin":
+                nested, index = _parse_steps(lines, index, stop_prefixes={"end"})
+                case_steps.extend(nested)
+                if index < len(lines) and lines[index].lower().startswith("end"):
+                    index += 1
+            elif after_colon:
+                # Single statement on same line as label
                 case_steps.append(ActionFlowStep(after_colon, _classify_kind(after_colon)))
             while index < len(lines):
                 next_line = lines[index]
