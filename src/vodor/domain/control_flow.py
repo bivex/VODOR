@@ -3,6 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
+
+
+class ActionKind(Enum):
+    ASSIGNMENT_BLOCKING = "assignment_blocking"
+    ASSIGNMENT_NONBLOCKING = "assignment_nonblocking"
+    SYSTEM_TASK = "system_task"
+    TASK_CALL = "task_call"
+    EVENT_TRIGGER = "event_trigger"
+    PROCEDURAL_CONTINUOUS = "procedural_continuous"
+    OTHER = "other"
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +24,7 @@ class ControlFlowStep:
 @dataclass(frozen=True, slots=True)
 class ActionFlowStep(ControlFlowStep):
     label: str
+    action_kind: ActionKind = ActionKind.OTHER
 
 
 @dataclass(frozen=True, slots=True)

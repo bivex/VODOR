@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from vodor.domain.control_flow import (
     ActionFlowStep,
+    ActionKind,
     ControlFlowDiagram,
     ControlFlowStep,
     DeferFlowStep,
@@ -374,7 +375,7 @@ def _parse_steps(
         if lower.startswith(("end", "endcase", "else")):
             break
 
-        steps.append(ActionFlowStep(_clean_line(line)))
+        steps.append(_classify_action(line))
         index += 1
 
     return steps, index
@@ -599,7 +600,7 @@ def _parse_case(lines: list[str], index: int) -> tuple[SwitchFlowStep, int]:
             case_steps: list[ControlFlowStep] = []
             # If there's a statement on the same line after the colon, capture it
             if after_colon:
-                case_steps.append(ActionFlowStep(after_colon))
+                case_steps.append(ActionFlowStep(after_colon, _classify_kind(after_colon)))
             while index < len(lines):
                 next_line = lines[index]
                 if next_line.lower().startswith("endcase") or _is_case_label_line(next_line):
@@ -666,7 +667,7 @@ def _parse_delay(lines: list[str], index: int) -> tuple[DelayFlowStep, int]:
         if index < len(lines) and lines[index].lower().startswith("end"):
             index += 1
     elif after_delay:
-        body_steps = [ActionFlowStep(after_delay)]
+        body_steps = [_classify_action(after_delay)]
     else:
         body_steps, index = _parse_branch_body(lines, index)
 
@@ -692,7 +693,7 @@ def _parse_event_wait(lines: list[str], index: int) -> tuple[EventWaitFlowStep, 
         if index < len(lines) and lines[index].lower().startswith("end"):
             index += 1
     elif after_event:
-        body_steps = [ActionFlowStep(_clean_line(after_event))]
+        body_steps = [_classify_action(after_event)]
     else:
         body_steps, index = _parse_branch_body(lines, index)
 
@@ -720,7 +721,7 @@ def _parse_wait_condition(lines: list[str], index: int) -> tuple[WaitConditionFl
         if index < len(lines) and lines[index].lower().startswith("end"):
             index += 1
     elif after_condition:
-        body_steps = [ActionFlowStep(_clean_line(after_condition))]
+        body_steps = [_classify_action(after_condition)]
     else:
         body_steps, index = _parse_branch_body(lines, index)
 
@@ -765,7 +766,7 @@ def _single_line_step(line: str) -> ControlFlowStep:
         prefix_len = 5 if lower.startswith("casez ") or lower.startswith("casex ") else 4
         expr = _extract_parenthesized(line[prefix_len:].strip()) or "expression"
         return SwitchFlowStep(expression=expr, cases=())
-    return ActionFlowStep(_clean_line(line))
+    return _classify_action(line)
 
 
 def _clean_line(line: str) -> str:
@@ -827,8 +828,86 @@ def _scan_top_level_actions(
         inside = any(s >= ex_start and e <= ex_end for (ex_start, ex_end) in excluded)
         if not inside:
             stmt = match.group().strip().removesuffix(";").strip()
-            actions.append(ActionFlowStep(stmt))
+            actions.append(ActionFlowStep(stmt, _classify_kind(stmt)))
     return actions
+
+
+# ── Action classification ──
+
+# Matches blocking assignment: lhs = rhs  (but not ==, !=, <=, >=)
+_RE_BLOCKING_ASSIGN = re.compile(r"^[^=]*[^!=<>]=[^=].*", re.DOTALL)
+# Matches nonblocking assignment: lhs <= rhs
+_RE_NONBLOCKING_ASSIGN = re.compile(r"^[^=]*<=\s*.+", re.DOTALL)
+# Matches system tasks: $display, $finish, $monitor, etc.
+_RE_SYSTEM_TASK = re.compile(r"^\$\w+", re.IGNORECASE)
+# Matches event trigger: ->event_name
+_RE_EVENT_TRIGGER = re.compile(r"^->\s*\w+", re.DOTALL)
+# Matches procedural continuous: assign/deassign/force/release inside always
+_RE_PROCEDURAL_CONTINUOUS = re.compile(
+    r"^(assign|deassign|force|release)\b", re.IGNORECASE
+)
+
+
+def _classify_action(line: str) -> ActionFlowStep:
+    """Create an ActionFlowStep with classified kind from a raw line."""
+    clean = _clean_line(line)
+    return ActionFlowStep(clean, _classify_kind(clean))
+
+
+def _classify_kind(clean: str) -> ActionKind:
+    """Classify a cleaned action line into an ActionKind."""
+    stripped = clean.strip()
+    if not stripped:
+        return ActionKind.OTHER
+
+    # Event trigger: ->event_name
+    if _RE_EVENT_TRIGGER.match(stripped):
+        return ActionKind.EVENT_TRIGGER
+
+    # System task: $display, $finish, $monitor, etc.
+    if _RE_SYSTEM_TASK.match(stripped):
+        return ActionKind.SYSTEM_TASK
+
+    # Procedural continuous assignment: assign/deassign/force/release
+    if _RE_PROCEDURAL_CONTINUOUS.match(stripped):
+        return ActionKind.PROCEDURAL_CONTINUOUS
+
+    # Nonblocking assignment: lhs <= rhs  (check before blocking because <= also matches =)
+    if _RE_NONBLOCKING_ASSIGN.match(stripped):
+        return ActionKind.ASSIGNMENT_NONBLOCKING
+
+    # Blocking assignment: lhs = rhs
+    if _RE_BLOCKING_ASSIGN.match(stripped):
+        return ActionKind.ASSIGNMENT_BLOCKING
+
+    # Task call (bare identifier — no =, no $, no keyword): identifier or identifier(args)
+    lower = stripped.lower()
+    if re.match(r"^[a-zA-Z_]\w*(\s*\(|\s*$)", stripped) and lower not in {
+        "begin",
+        "end",
+        "if",
+        "else",
+        "while",
+        "for",
+        "repeat",
+        "forever",
+        "disable",
+        "case",
+        "casez",
+        "casex",
+        "fork",
+        "join",
+        "join_any",
+        "join_none",
+        "wait",
+        "assign",
+        "deassign",
+        "force",
+        "release",
+    }:
+        return ActionKind.TASK_CALL
+
+    return ActionKind.OTHER
 
 
 # Backward-compatible alias for downstream imports during migration.

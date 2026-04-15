@@ -8,6 +8,7 @@ import re
 
 from vodor.domain.control_flow import (
     ActionFlowStep,
+    ActionKind,
     ControlFlowDiagram,
     ControlFlowStep,
     DeferFlowStep,
@@ -309,6 +310,37 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
         white-space: pre-wrap;
         overflow-wrap: anywhere;
       }}
+      /* ── Action kind badges ── */
+      .action-badge {{
+        display: inline-block;
+        font-size: 10px;
+        font-weight: 600;
+        font-family: var(--ui);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        padding: 1px 7px;
+        border-radius: 999px;
+        margin-right: 8px;
+        vertical-align: middle;
+        flex-shrink: 0;
+      }}
+      .ns-action-row {{
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+      }}
+      .action-badge-ba  {{ background: #163628; color: #a6da95; border: 1px solid #1e5e3a; }}
+      .action-badge-nba {{ background: #243b69; color: #82aaff; border: 1px solid #2e5090; }}
+      .action-badge-sys {{ background: #37230f; color: #ffb86b; border: 1px solid #5a3d1a; }}
+      .action-badge-tsk {{ background: #2a1d41; color: #c4a7ff; border: 1px solid #3e2d5e; }}
+      .action-badge-evt {{ background: #11343b; color: #56d4dd; border: 1px solid #1a4e57; }}
+      .action-badge-pca {{ background: #371925; color: #ff93a9; border: 1px solid #5a2840; }}
+      .ns-action-ba  {{ border-left: 3px solid #a6da95; }}
+      .ns-action-nba {{ border-left: 3px solid #82aaff; }}
+      .ns-action-sys {{ border-left: 3px solid #ffb86b; }}
+      .ns-action-tsk {{ border-left: 3px solid #c4a7ff; }}
+      .ns-action-evt {{ border-left: 3px solid #56d4dd; }}
+      .ns-action-pca {{ border-left: 3px solid #ff93a9; }}
       /* ── Block type colours ── */
       .ns-guard   {{ background: var(--guard-fill); }}
       .ns-loop,
@@ -649,12 +681,35 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
         rendered = "".join(self._render_step(step, depth=depth) for step in steps)
         return f'<div class="ns-sequence ns-depth-{depth}">{rendered}</div>'
 
+    @staticmethod
+    def _action_css(kind: ActionKind) -> tuple[str, str]:
+        """Return (node_class, badge_html) for an ActionKind."""
+        match kind:
+            case ActionKind.ASSIGNMENT_BLOCKING:
+                return "ns-action-ba", '<span class="action-badge action-badge-ba">=</span>'
+            case ActionKind.ASSIGNMENT_NONBLOCKING:
+                return "ns-action-nba", '<span class="action-badge action-badge-nba">&lt;=</span>'
+            case ActionKind.SYSTEM_TASK:
+                return "ns-action-sys", '<span class="action-badge action-badge-sys">$</span>'
+            case ActionKind.TASK_CALL:
+                return "ns-action-tsk", '<span class="action-badge action-badge-tsk">call</span>'
+            case ActionKind.EVENT_TRIGGER:
+                return "ns-action-evt", '<span class="action-badge action-badge-evt">&rarr;</span>'
+            case ActionKind.PROCEDURAL_CONTINUOUS:
+                return "ns-action-pca", '<span class="action-badge action-badge-pca">pca</span>'
+            case _:
+                return "", ""
+
     def _render_step(self, step: ControlFlowStep, *, depth: int) -> str:
         if isinstance(step, ActionFlowStep):
+            kind_cls, badge = self._action_css(step.action_kind)
+            action_cls = f"ns-action {kind_cls}".rstrip()
             return (
-                '<div class="ns-node ns-action">'
+                f'<div class="ns-node {escape(action_cls)}">'
                 f'<div class="ns-label" aria-label="Action {escape(step.label)}">'
-                f'<code class="action-text">{escape(step.label)}</code>'
+                f'<div class="ns-action-row">'
+                f'{badge}<code class="action-text">{escape(step.label)}</code>'
+                "</div>"
                 "</div>"
                 "</div>"
             )
