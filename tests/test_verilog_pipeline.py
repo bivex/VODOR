@@ -1131,3 +1131,109 @@ class TestSmellDetectors:
         smells = detect_smells(functions[0])
         blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
         assert len(blocking) == 0
+
+
+class TestSmellFalsePositiveFixes:
+    """Tests for false positive suppression in smell detectors."""
+
+    def _extract_functions(self, source: str):
+        source_unit = SourceUnit(
+            identifier=SourceUnitId("test.v"),
+            location="test.v",
+            content=source,
+        )
+        diagram = AntlrVerilogControlFlowExtractor().extract(source_unit)
+        return diagram.functions
+
+    def test_intermediate_variable_not_flagged(self) -> None:
+        """Blocking to an intermediate variable that feeds into nonblocking RHS is not flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "ptr_temp = ptr_reg + 1;",
+            "ptr_reg <= ptr_temp;",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) == 0
+
+    def test_real_blocking_in_sequential_still_flagged(self) -> None:
+        """Blocking to a register (not intermediate) is still flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "count = count + 1;",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) == 1
+
+    def test_mixed_blocking_nonblocking_flagged(self) -> None:
+        """Blocking and nonblocking to same register is flagged."""
+        source = "\n".join([
+            "module top;",
+            "always @(posedge clk) begin",
+            "if (rst) count = 0;",
+            "else count <= count + 1;",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        blocking = [s for s in smells if s.kind == SmellKind.BLOCKING_IN_SEQUENTIAL]
+        assert len(blocking) == 1
+
+    def test_latch_risk_suppressed_with_default(self) -> None:
+        """if without else in combinational is NOT flagged when default assigned above."""
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "result = 0;",
+            "if (en)",
+            "result = data;",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        latch = [s for s in smells if s.kind == SmellKind.LATCH_RISK_INCOMPLETE_IF]
+        assert len(latch) == 0
+
+    def test_latch_risk_still_flagged_without_default(self) -> None:
+        """if without else in combinational IS flagged when no default exists."""
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "if (en)",
+            "result = data;",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        latch = [s for s in smells if s.kind == SmellKind.LATCH_RISK_INCOMPLETE_IF]
+        assert len(latch) == 1
+
+    def test_partial_default_still_flagged(self) -> None:
+        """Default for one var doesn't suppress latch risk on a different var."""
+        source = "\n".join([
+            "module top;",
+            "always @* begin",
+            "x = 0;",
+            "if (en) begin",
+            "x = data;",
+            "y = 1;",
+            "end",
+            "end",
+            "endmodule",
+        ])
+        functions = self._extract_functions(source)
+        smells = detect_smells(functions[0])
+        latch = [s for s in smells if s.kind == SmellKind.LATCH_RISK_INCOMPLETE_IF]
+        assert len(latch) == 1  # y has no default
