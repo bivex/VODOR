@@ -137,6 +137,7 @@ Action nodes inside diagrams are automatically classified with distinct visual t
 | Task call | `call` | Purple | `reset_all;`, bare task enables |
 | Event trigger | `->` | Teal | `-> event_name;` |
 | Procedural continuous | `pca` | Red | `assign`/`deassign`/`force`/`release` inside `always` |
+| Continuous assign | `ca` | Mint | `assign`/`force`/`release` at module level |
 | Other | — | Default | Everything else |
 
 ### Procedural blocks
