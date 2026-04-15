@@ -6,7 +6,7 @@ from html import escape
 
 import re
 
-from swifta.domain.control_flow import (
+from vodor.domain.control_flow import (
     ActionFlowStep,
     ControlFlowDiagram,
     DeferFlowStep,
@@ -27,7 +27,7 @@ from swifta.domain.control_flow import (
     WaitConditionFlowStep,
     WhileFlowStep,
 )
-from swifta.domain.ports import VerilogRenderer
+from vodor.domain.ports import VerilogRenderer
 
 _INDENT = "    "
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from swifta.domain.control_flow import (
+from vodor.domain.control_flow import (
     ActionFlowStep,
     ControlFlowDiagram,
     ControlFlowStep,
@@ -23,7 +23,7 @@ from swifta.domain.control_flow import (
     WaitConditionFlowStep,
     WhileFlowStep,
 )
-from swifta.infrastructure.rendering.nassi_html_renderer import (
+from vodor.infrastructure.rendering.nassi_html_renderer import (
     HtmlNassiDiagramRenderer,
 )
 
@@ -311,7 +311,7 @@ class TestNassiHtmlDefer:
 class TestNassiHtmlUnsupported:
     def test_unsupported_step_raises(self) -> None:
         from dataclasses import dataclass
-        from swifta.domain.control_flow import ControlFlowStep
+        from vodor.domain.control_flow import ControlFlowStep
 
         @dataclass(frozen=True)
         class FakeStep(ControlFlowStep):

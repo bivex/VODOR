@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from swifta.domain.ports import (
+from vodor.domain.ports import (
     NassiDiagramRenderer,
     SourceRepository,
     VerilogControlFlowExtractor,

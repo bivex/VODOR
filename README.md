@@ -28,18 +28,18 @@ uv sync --extra dev
 uv run python scripts/generate_verilog_parser.py
 
 # Parse a file
-uv run swifta parse-file path/to/module.v
+uv run vodor parse-file path/to/module.v
 
 # Generate Nassi-Shneiderman HTML
-uv run swifta nassi-file path/to/module.v
-uv run swifta nassi-file path/to/module.v --out output.html
+uv run vodor nassi-file path/to/module.v
+uv run vodor nassi-file path/to/module.v --out output.html
 
 # Batch diagrams for a directory
-uv run swifta nassi-dir path/to/project --out output/
+uv run vodor nassi-dir path/to/project --out output/
 
 # Export behavioral Verilog
-uv run swifta verilog-file path/to/module.v
-uv run swifta verilog-dir path/to/project --out output/
+uv run vodor verilog-file path/to/module.v
+uv run vodor verilog-dir path/to/project --out output/
 ```
 
 ## Verilog Construct Support

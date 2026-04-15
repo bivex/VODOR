@@ -6,7 +6,7 @@ from html import escape
 from math import ceil
 import re
 
-from swifta.domain.control_flow import (
+from vodor.domain.control_flow import (
     ActionFlowStep,
     ControlFlowDiagram,
     ControlFlowStep,
@@ -28,7 +28,7 @@ from swifta.domain.control_flow import (
     WaitConditionFlowStep,
     WhileFlowStep,
 )
-from swifta.domain.ports import NassiDiagramRenderer
+from vodor.domain.ports import NassiDiagramRenderer
 
 
 class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
@@ -598,7 +598,7 @@ class HtmlNassiDiagramRenderer(NassiDiagramRenderer):
     <div class="viewer">
       <div class="titlebar">
         <div class="titlebar-icon"></div>
-        <span class="titlebar-text">Swifta · NSD Viewer</span>
+        <span class="titlebar-text">Vodor · NSD Viewer</span>
       </div>
       <div class="toolbar">
         <span class="toolbar-label">Nassi-Shneiderman</span>

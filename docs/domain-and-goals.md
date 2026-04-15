@@ -7,7 +7,7 @@ Teams need a reliable way to inspect Swift code outside the Swift compiler for t
 * produce a stable, machine-consumable structural report that other tools can automate against
 * produce a human-readable control-flow view that helps engineers inspect branching logic quickly
 
-Swifta exists to turn raw Swift source into those two outputs without coupling the core model to CLI details, filesystem traversal, or ANTLR-specific concerns.
+Vodor exists to turn raw Swift source into those two outputs without coupling the core model to CLI details, filesystem traversal, or ANTLR-specific concerns.
 
 ## Business Goals
 

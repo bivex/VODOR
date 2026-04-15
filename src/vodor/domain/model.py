@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
-from swifta.domain.errors import (
+from vodor.domain.errors import (
     DuplicateSourceUnitError,
     EmptyParsingJobError,
     ParsingJobAlreadyCompletedError,

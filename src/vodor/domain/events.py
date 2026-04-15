@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from swifta.domain.model import ParseStatus
+from vodor.domain.model import ParseStatus
 
 
 @dataclass(frozen=True, slots=True)

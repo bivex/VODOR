@@ -6,9 +6,9 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Sequence
 
-from swifta.domain.control_flow import ControlFlowDiagram
-from swifta.domain.events import DomainEvent
-from swifta.domain.model import GrammarVersion, ParseOutcome, ParsingJob, SourceUnit
+from vodor.domain.control_flow import ControlFlowDiagram
+from vodor.domain.events import DomainEvent
+from vodor.domain.model import GrammarVersion, ParseOutcome, ParsingJob, SourceUnit
 
 
 class SourceRepository(ABC):

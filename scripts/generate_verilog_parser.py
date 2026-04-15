@@ -11,7 +11,7 @@ from urllib.request import urlretrieve
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS_DIR = ROOT / "build" / "tools"
 GRAMMAR_DIR = ROOT / "resources" / "grammars" / "verilog"
-OUTPUT_DIR = ROOT / "src" / "swifta" / "infrastructure" / "antlr" / "generated" / "verilog"
+OUTPUT_DIR = ROOT / "src" / "vodor" / "infrastructure" / "antlr" / "generated" / "verilog"
 ANTLR_VERSION = "4.13.2"
 ANTLR_JAR = TOOLS_DIR / f"antlr-{ANTLR_VERSION}-complete.jar"
 ANTLR_JAR_URL = f"https://www.antlr.org/download/antlr-{ANTLR_VERSION}-complete.jar"

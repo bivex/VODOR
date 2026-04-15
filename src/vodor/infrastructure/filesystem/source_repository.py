@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from swifta.domain.errors import InputValidationError, SourceAccessError
-from swifta.domain.model import SourceUnit, SourceUnitId
-from swifta.domain.ports import SourceRepository
+from vodor.domain.errors import InputValidationError, SourceAccessError
+from vodor.domain.model import SourceUnit, SourceUnitId
+from vodor.domain.ports import SourceRepository
 
 
 class FileSystemSourceRepository(SourceRepository):

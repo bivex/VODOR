@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import uuid4
 
-from swifta.application.dto import (
+from vodor.application.dto import (
     REPORT_SCHEMA_VERSION,
     ParseDirectoryCommand,
     ParseFileCommand,
@@ -16,14 +16,14 @@ from swifta.application.dto import (
     StructuralElementDTO,
     SyntaxDiagnosticDTO,
 )
-from swifta.domain.events import (
+from vodor.domain.events import (
     ParsingJobCompleted,
     ParsingJobStarted,
     SourceUnitParsed,
     SourceUnitParsingFailed,
 )
-from swifta.domain.model import ParseOutcome, ParseStatus, ParsingJob, SourceUnit
-from swifta.domain.ports import (
+from vodor.domain.model import ParseOutcome, ParseStatus, ParsingJob, SourceUnit
+from vodor.domain.ports import (
     Clock,
     DomainEventPublisher,
     ParsingJobRepository,

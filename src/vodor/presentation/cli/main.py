@@ -9,29 +9,29 @@ from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 
-from swifta.application.control_flow import (
+from vodor.application.control_flow import (
     BuildNassiDiagramCommand,
     BuildNassiDirectoryCommand,
     NassiDiagramBundleDTO,
     NassiDiagramService,
 )
-from swifta.application.dto import ParseDirectoryCommand, ParseFileCommand, ParsingJobReportDTO
-from swifta.application.use_cases import ParsingJobService
-from swifta.application.verilog_export import (
+from vodor.application.dto import ParseDirectoryCommand, ParseFileCommand, ParsingJobReportDTO
+from vodor.application.use_cases import ParsingJobService
+from vodor.application.verilog_export import (
     ExportVerilogDirectoryCommand,
     ExportVerilogFileCommand,
     VerilogBundleDTO,
     VerilogExportService,
 )
-from swifta.domain.errors import SwiftaError
-from swifta.infrastructure.antlr.control_flow_extractor import (
+from vodor.domain.errors import VodorError
+from vodor.infrastructure.antlr.control_flow_extractor import (
     AntlrVerilogControlFlowExtractor,
 )
-from swifta.infrastructure.antlr.parser_adapter import AntlrVerilogSyntaxParser
-from swifta.infrastructure.filesystem.source_repository import FileSystemSourceRepository
-from swifta.infrastructure.rendering.nassi_html_renderer import HtmlNassiDiagramRenderer
-from swifta.infrastructure.rendering.verilog_renderer import VerilogDiagramRenderer
-from swifta.infrastructure.system import (
+from vodor.infrastructure.antlr.parser_adapter import AntlrVerilogSyntaxParser
+from vodor.infrastructure.filesystem.source_repository import FileSystemSourceRepository
+from vodor.infrastructure.rendering.nassi_html_renderer import HtmlNassiDiagramRenderer
+from vodor.infrastructure.rendering.verilog_renderer import VerilogDiagramRenderer
+from vodor.infrastructure.system import (
     InMemoryParsingJobRepository,
     StructuredLoggingEventPublisher,
     SystemClock,
@@ -132,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         else:
             parser.error(f"unsupported command: {args.command}")
-    except SwiftaError as error:
+    except VodorError as error:
         print(json.dumps({"error": str(error)}, indent=2), file=sys.stderr)
         return 2
 
@@ -336,7 +336,7 @@ def _render_verilog_index(
     root_path: str,
     written_docs: tuple[_WrittenVerilogDoc, ...],
 ) -> str:
-    lines = [f"Swifta Verilog Index", f"Root: {root_path}", ""]
+    lines = [f"Vodor Verilog Index", f"Root: {root_path}", ""]
     if not written_docs:
         lines.append("No Verilog files generated.")
     for doc in written_docs:
@@ -413,7 +413,7 @@ def _render_directory_index(
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Swifta NSD Index</title>
+    <title>Vodor NSD Index</title>
     <style>
       :root {{
         --line: #22364d;
@@ -578,7 +578,7 @@ def _render_directory_index(
   <body>
     <div class="window">
       <div class="titlebar">
-        <span>Swifta NSD Index</span>
+        <span>Vodor NSD Index</span>
         <span class="stats">{active_files} diagrams / {total_files} files / {total_functions} functions</span>
       </div>
       <div class="body">

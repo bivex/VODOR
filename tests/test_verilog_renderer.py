@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from swifta.domain.control_flow import (
+from vodor.domain.control_flow import (
     ActionFlowStep,
     CatchClauseFlow,
     ControlFlowDiagram,
@@ -26,7 +26,7 @@ from swifta.domain.control_flow import (
     WaitConditionFlowStep,
     WhileFlowStep,
 )
-from swifta.infrastructure.rendering.verilog_renderer import (
+from vodor.infrastructure.rendering.verilog_renderer import (
     VerilogDiagramRenderer,
     _normalize_case_label,
     _parse_for_in_header,
@@ -417,7 +417,7 @@ class TestStructVerification:
 class TestVerilogRendererUnsupported:
     def test_unknown_step_type_raises(self) -> None:
         from dataclasses import dataclass
-        from swifta.domain.control_flow import ControlFlowStep
+        from vodor.domain.control_flow import ControlFlowStep
 
         @dataclass(frozen=True)
         class FakeStep(ControlFlowStep):

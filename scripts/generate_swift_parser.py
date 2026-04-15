@@ -13,7 +13,7 @@ from urllib.request import urlretrieve
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS_DIR = ROOT / "build" / "tools"
 GRAMMAR_DIR = ROOT / "resources" / "grammars" / "swift5"
-OUTPUT_DIR = ROOT / "src" / "swifta" / "infrastructure" / "antlr" / "generated" / "swift5"
+OUTPUT_DIR = ROOT / "src" / "vodor" / "infrastructure" / "antlr" / "generated" / "swift5"
 ANTLR_VERSION = "4.13.2"
 ANTLR_JAR = TOOLS_DIR / f"antlr-{ANTLR_VERSION}-complete.jar"
 ANTLR_JAR_URL = f"https://www.antlr.org/download/antlr-{ANTLR_VERSION}-complete.jar"

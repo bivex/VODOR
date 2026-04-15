@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from swifta.domain.control_flow import (
+from vodor.domain.control_flow import (
     ActionFlowStep,
     ControlFlowDiagram,
     ControlFlowStep,
@@ -24,8 +24,8 @@ from swifta.domain.control_flow import (
     WaitConditionFlowStep,
     WhileFlowStep,
 )
-from swifta.domain.model import SourceUnit
-from swifta.domain.ports import VerilogControlFlowExtractor
+from vodor.domain.model import SourceUnit
+from vodor.domain.ports import VerilogControlFlowExtractor
 
 
 @dataclass(frozen=True, slots=True)

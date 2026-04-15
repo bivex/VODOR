@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from time import perf_counter
 
-from swifta.domain.model import (
+from vodor.domain.model import (
     GrammarVersion,
     ParseOutcome,
     ParseStatistics,
@@ -12,8 +12,8 @@ from swifta.domain.model import (
     StructuralElement,
     StructuralElementKind,
 )
-from swifta.domain.ports import VerilogSyntaxParser
-from swifta.infrastructure.antlr.runtime import (
+from vodor.domain.ports import VerilogSyntaxParser
+from vodor.infrastructure.antlr.runtime import (
     ANTLR_GRAMMAR_VERSION,
     load_generated_types,
     parse_source_text,

@@ -2,7 +2,7 @@
 
 ## System Purpose
 
-Swifta owns the flow from Swift source input to two output families:
+Vodor owns the flow from Swift source input to two output families:
 
 * versioned parse reports for machines
 * Nassi-Shneiderman HTML diagrams for humans
@@ -22,7 +22,7 @@ It is not a compiler, build system, or semantic analysis engine. It is a source-
 
 * the local filesystem that stores Swift input files and generated artifacts
 * the vendored ANTLR Swift grammar and generated parser runtime
-* future analysis or indexing systems that may consume Swifta outputs
+* future analysis or indexing systems that may consume Vodor outputs
 * browser runtimes that display generated HTML diagrams
 
 ## System Boundary
@@ -112,14 +112,14 @@ The parse-report workflow emits domain events that infrastructure currently turn
 
 ## Data Ownership
 
-Swifta owns:
+Vodor owns:
 
 * the domain model
 * the application DTO contracts
 * the generated HTML document structure
 * output path conventions for CLI-generated artifacts
 
-Swifta does not own:
+Vodor does not own:
 
 * the authoritative meaning of Swift semantics
 * the lifecycle of source files outside the current execution

@@ -4,8 +4,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from swifta.domain.errors import InputValidationError
-from swifta.domain.control_flow import (
+from vodor.domain.errors import InputValidationError
+from vodor.domain.control_flow import (
     ActionFlowStep,
     DelayFlowStep,
     EventWaitFlowStep,
@@ -19,21 +19,21 @@ from swifta.domain.control_flow import (
     WaitConditionFlowStep,
     WhileFlowStep,
 )
-from swifta.domain.model import SourceUnit, SourceUnitId, StructuralElementKind
-from swifta.infrastructure.antlr.control_flow_extractor import (
+from vodor.domain.model import SourceUnit, SourceUnitId, StructuralElementKind
+from vodor.infrastructure.antlr.control_flow_extractor import (
     AntlrVerilogControlFlowExtractor,
 )
-from swifta.infrastructure.antlr.control_flow_extractor import (
+from vodor.infrastructure.antlr.control_flow_extractor import (
     _extract_steps,
     _scan_procedural_blocks,
     _scan_top_level_actions,
     _strip_comments,
 )
-from swifta.infrastructure.antlr.parser_adapter import (
+from vodor.infrastructure.antlr.parser_adapter import (
     _extract_structural_elements,
     _next_identifier,
 )
-from swifta.infrastructure.filesystem.source_repository import FileSystemSourceRepository
+from vodor.infrastructure.filesystem.source_repository import FileSystemSourceRepository
 
 
 @dataclass(frozen=True)
@@ -377,7 +377,7 @@ def test_full_fixture_extracts_all_constructs() -> None:
 
 
 def _collect_step_types(steps, result: set) -> None:
-    from swifta.domain.control_flow import ControlFlowStep
+    from vodor.domain.control_flow import ControlFlowStep
 
     for s in steps:
         result.add(type(s))

@@ -5,17 +5,17 @@ from __future__ import annotations
 from antlr4 import CommonTokenStream, InputStream, ParseTreeWalker
 from antlr4.tree.Tree import ParseTreeListener
 
-from swifta.domain.control_flow import (
+from vodor.domain.control_flow import (
     ActionFlowStep,
     ControlFlowDiagram,
     FunctionControlFlow,
     StructDeclarationFlowStep,
     StructFieldAccessFlowStep,
 )
-from swifta.domain.model import SourceUnit
-from swifta.domain.ports import VerilogControlFlowExtractor
-from swifta.infrastructure.antlr.generated.verilog.VerilogLexer import VerilogLexer
-from swifta.infrastructure.antlr.generated.verilog.VerilogParser import VerilogParser
+from vodor.domain.model import SourceUnit
+from vodor.domain.ports import VerilogControlFlowExtractor
+from vodor.infrastructure.antlr.generated.verilog.VerilogLexer import VerilogLexer
+from vodor.infrastructure.antlr.generated.verilog.VerilogParser import VerilogParser
 
 
 class AntlrVerilogControlFlowExtractor(VerilogControlFlowExtractor):
